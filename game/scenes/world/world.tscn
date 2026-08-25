@@ -1,0 +1,87 @@
+[gd_scene load_steps=10 format=3 uid="uid://world"]
+
+[ext_resource type="Script" path="res://scenes/world/world.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/monsters/wild_spawn_manager.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/ui/hud.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://scenes/player/player.tscn" id="5"]
+
+[sub_resource type="ProceduralSkyMaterial" id="sky_mat"]
+sky_top_color = Color(0.22, 0.48, 0.86, 1)
+sky_horizon_color = Color(0.78, 0.86, 0.95, 1)
+sky_curve = 0.08
+ground_bottom_color = Color(0.18, 0.16, 0.12, 1)
+ground_horizon_color = Color(0.55, 0.62, 0.42, 1)
+sun_angle_max = 30.0
+sun_curve = 0.05
+
+[sub_resource type="Sky" id="sky"]
+sky_material = SubResource("sky_mat")
+
+[sub_resource type="Environment" id="env"]
+background_mode = 2
+sky = SubResource("sky")
+ambient_light_source = 2
+ambient_light_color = Color(0.72, 0.78, 0.9, 1)
+ambient_light_energy = 0.55
+tonemap_mode = 2
+fog_enabled = true
+fog_light_color = Color(0.62, 0.72, 0.85, 1)
+fog_density = 0.0018
+fog_sky_affect = 0.4
+glow_enabled = true
+glow_intensity = 0.25
+
+[sub_resource type="StandardMaterial3D" id="shrine_mat"]
+albedo_color = Color(0.25, 0.75, 0.95, 1)
+emission_enabled = true
+emission = Color(0.0875, 0.2625, 0.3325, 1)
+roughness = 1.0
+
+[sub_resource type="BoxMesh" id="shrine_base_mesh"]
+size = Vector3(4, 0.5, 4)
+
+[sub_resource type="CylinderMesh" id="shrine_post_mesh"]
+top_radius = 0.3
+bottom_radius = 0.3
+height = 3.0
+
+[node name="World" type="Node3D"]
+script = ExtResource("1")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, -0.75, 0.433013, 0, 20, 0)
+light_energy = 1.45
+shadow_enabled = true
+shadow_opacity = 0.65
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Terrain" type="Node3D" parent="."]
+
+[node name="Shrine" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0)
+
+[node name="ShrineBase" type="MeshInstance3D" parent="Shrine"]
+mesh = SubResource("shrine_base_mesh")
+surface_material_override/0 = SubResource("shrine_mat")
+
+[node name="ShrinePost" type="MeshInstance3D" parent="Shrine"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, 0)
+mesh = SubResource("shrine_post_mesh")
+surface_material_override/0 = SubResource("shrine_mat")
+
+[node name="ShrineOrb" type="OmniLight3D" parent="Shrine"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.5, 0)
+light_color = Color(0.4, 0.8, 1.0, 1)
+light_energy = 3.0
+omni_range = 8.0
+
+[node name="SpawnPoint" type="Node3D" parent="Shrine"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 5)
+
+[node name="Player" parent="." instance=ExtResource("5")]
+
+[node name="WildSpawnManager" parent="." instance=ExtResource("3")]
+
+[node name="HUD" parent="." instance=ExtResource("4")]

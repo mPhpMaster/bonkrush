@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://wildspawn"]
+
+[ext_resource type="Script" path="res://scenes/monsters/wild_spawn_manager.gd" id="1"]
+
+[node name="WildSpawnManager" type="Node3D"]
+script = ExtResource("1")

@@ -1,0 +1,104 @@
+[gd_scene format=3 uid="uid://login"]
+
+[ext_resource type="Script" uid="uid://cy6dkk02fk0l2" path="res://scenes/ui/login.gd" id="1"]
+
+[node name="Login" type="Control" unique_id=515220668]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1")
+
+[node name="Background" type="ColorRect" parent="." unique_id=1704730357]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.07, 0.07, 0.12, 1)
+
+[node name="Panel" type="PanelContainer" parent="." unique_id=1304003232]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -200.0
+offset_top = -250.0
+offset_right = 200.0
+offset_bottom = 260.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="VBox" type="VBoxContainer" parent="Panel" unique_id=2010960264]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Title" type="Label" parent="Panel/VBox" unique_id=1173185466]
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+theme_override_colors/font_color = Color(0.95, 0.8, 0.35, 1)
+text = "3D MONSTER RPG"
+horizontal_alignment = 1
+
+[node name="Tagline" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+modulate = Color(0.75, 0.78, 0.9, 1)
+text = "Catch  ·  Train  ·  Explore"
+horizontal_alignment = 1
+
+[node name="Spacer" type="Control" parent="Panel/VBox" unique_id=754704121]
+custom_minimum_size = Vector2(0, 12)
+layout_mode = 2
+
+[node name="EmailInput" type="LineEdit" parent="Panel/VBox" unique_id=1822313988]
+custom_minimum_size = Vector2(320, 40)
+layout_mode = 2
+placeholder_text = "Email"
+
+[node name="PassInput" type="LineEdit" parent="Panel/VBox" unique_id=452418458]
+custom_minimum_size = Vector2(320, 40)
+layout_mode = 2
+placeholder_text = "Password"
+secret = true
+
+[node name="LoginBtn" type="Button" parent="Panel/VBox" unique_id=1606452885]
+custom_minimum_size = Vector2(320, 44)
+layout_mode = 2
+text = "Login"
+
+[node name="SignupBtn" type="Button" parent="Panel/VBox" unique_id=1687583317]
+custom_minimum_size = Vector2(320, 44)
+layout_mode = 2
+text = "Sign Up"
+
+[node name="DemoBtn" type="Button" parent="Panel/VBox"]
+custom_minimum_size = Vector2(320, 44)
+layout_mode = 2
+text = "Play Demo"
+
+[node name="ResetDemoBtn" type="Button" parent="Panel/VBox"]
+layout_mode = 2
+text = "Reset Demo Save"
+flat = true
+
+[node name="ErrorLabel" type="Label" parent="Panel/VBox" unique_id=312061684]
+modulate = Color(1, 0.3, 0.3, 1)
+custom_minimum_size = Vector2(320, 0)
+layout_mode = 2
+autowrap_mode = 3
+
+[node name="Spinner" type="Label" parent="Panel/VBox" unique_id=779356659]
+modulate = Color(0.7, 0.9, 1, 1)
+layout_mode = 2
+horizontal_alignment = 1
+
+[connection signal="pressed" from="Panel/VBox/LoginBtn" to="." method="_on_login_btn_pressed"]
+[connection signal="pressed" from="Panel/VBox/SignupBtn" to="." method="_on_signup_btn_pressed"]
+[connection signal="pressed" from="Panel/VBox/DemoBtn" to="." method="_on_demo_btn_pressed"]
+[connection signal="pressed" from="Panel/VBox/ResetDemoBtn" to="." method="_on_reset_demo_pressed"]

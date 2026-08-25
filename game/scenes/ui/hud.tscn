@@ -1,0 +1,263 @@
+[gd_scene load_steps=6 format=3 uid="uid://hud"]
+
+[ext_resource type="Script" path="res://scenes/ui/hud.gd" id="1"]
+[ext_resource type="PackedScene" path="res://scenes/ui/inventory_panel.tscn" id="2"]
+[ext_resource type="PackedScene" path="res://scenes/ui/collection_panel.tscn" id="3"]
+[ext_resource type="PackedScene" path="res://scenes/ui/party_panel.tscn" id="4"]
+[ext_resource type="PackedScene" path="res://scenes/ui/shop_panel.tscn" id="5"]
+[ext_resource type="Script" path="res://scenes/ui/radar.gd" id="6"]
+
+[node name="HUD" type="CanvasLayer"]
+layer = 10
+script = ExtResource("1")
+
+[node name="HUDRoot" type="Control" parent="."]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="StatPanel" type="PanelContainer" parent="HUDRoot"]
+layout_mode = 1
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 360.0
+offset_bottom = 168.0
+mouse_filter = 0
+
+[node name="TopLeft" type="VBoxContainer" parent="HUDRoot/StatPanel"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="HPLabel" type="Label" parent="HUDRoot/StatPanel/TopLeft"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "No party"
+
+[node name="HPBar" type="ProgressBar" parent="HUDRoot/StatPanel/TopLeft"]
+custom_minimum_size = Vector2(300, 14)
+layout_mode = 2
+max_value = 100.0
+show_percentage = false
+
+[node name="TypeLabel" type="Label" parent="HUDRoot/StatPanel/TopLeft"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 13
+
+[node name="XPBar" type="ProgressBar" parent="HUDRoot/StatPanel/TopLeft"]
+custom_minimum_size = Vector2(300, 10)
+layout_mode = 2
+max_value = 50.0
+show_percentage = false
+
+[node name="QuestLabel" type="Label" parent="HUDRoot/StatPanel/TopLeft"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+modulate = Color(0.75, 0.85, 1, 1)
+text = "Quest: Defeat 3 wild monsters (0/3)"
+
+[node name="CombatLabel" type="Label" parent="HUDRoot/StatPanel/TopLeft"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+modulate = Color(1, 0.45, 0.35, 1)
+
+[node name="StatusLabel" type="Label" parent="HUDRoot/StatPanel/TopLeft"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 12
+modulate = Color(1, 0.85, 0.4, 1)
+autowrap_mode = 3
+
+[node name="TopRight" type="VBoxContainer" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -168.0
+offset_top = 10.0
+offset_right = -10.0
+offset_bottom = 88.0
+mouse_filter = 0
+theme_override_constants/separation = 6
+
+[node name="CoinsLabel" type="Label" parent="HUDRoot/TopRight"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text = "🪙 0"
+horizontal_alignment = 2
+
+[node name="LogoutBtn" type="Button" parent="HUDRoot/TopRight"]
+custom_minimum_size = Vector2(90, 32)
+layout_mode = 2
+size_flags_horizontal = 8
+text = "Logout"
+
+[node name="HelpBtn" type="Button" parent="HUDRoot/TopRight"]
+custom_minimum_size = Vector2(90, 32)
+layout_mode = 2
+size_flags_horizontal = 8
+text = "Help  H"
+
+[node name="MenuBar" type="HBoxContainer" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -250.0
+offset_top = 10.0
+offset_right = 250.0
+offset_bottom = 48.0
+alignment = 1
+theme_override_constants/separation = 8
+mouse_filter = 0
+
+[node name="InvBtn" type="Button" parent="HUDRoot/MenuBar"]
+custom_minimum_size = Vector2(110, 36)
+layout_mode = 2
+text = "Bag  I"
+
+[node name="CollBtn" type="Button" parent="HUDRoot/MenuBar"]
+custom_minimum_size = Vector2(128, 36)
+layout_mode = 2
+text = "Caught  C"
+
+[node name="PartyBtn" type="Button" parent="HUDRoot/MenuBar"]
+custom_minimum_size = Vector2(110, 36)
+layout_mode = 2
+text = "Party  P"
+
+[node name="ShopBtn" type="Button" parent="HUDRoot/MenuBar"]
+custom_minimum_size = Vector2(110, 36)
+layout_mode = 2
+text = "Shop  E"
+
+[node name="PartyStrip" type="HBoxContainer" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 10.0
+offset_top = -118.0
+offset_right = 420.0
+offset_bottom = -38.0
+theme_override_constants/separation = 8
+mouse_filter = 0
+
+[node name="Bottom" type="HBoxContainer" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -220.0
+offset_top = -78.0
+offset_right = 220.0
+offset_bottom = -12.0
+alignment = 1
+mouse_filter = 0
+
+[node name="AbilityBar" type="HBoxContainer" parent="HUDRoot/Bottom"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Ability1" type="Button" parent="HUDRoot/Bottom/AbilityBar"]
+custom_minimum_size = Vector2(128, 52)
+layout_mode = 2
+text = "1  Attack"
+
+[node name="Ability2" type="Button" parent="HUDRoot/Bottom/AbilityBar"]
+custom_minimum_size = Vector2(128, 52)
+layout_mode = 2
+text = "2  Special"
+
+[node name="Ability3" type="Button" parent="HUDRoot/Bottom/AbilityBar"]
+custom_minimum_size = Vector2(128, 52)
+layout_mode = 2
+text = "3  Heal"
+
+[node name="Center" type="CenterContainer" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.28
+anchor_right = 0.5
+anchor_bottom = 0.28
+
+[node name="CatchMsg" type="Label" parent="HUDRoot/Center"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+horizontal_alignment = 1
+
+[node name="ShopHint" type="Label" parent="HUDRoot"]
+visible = false
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -160.0
+offset_top = -118.0
+offset_right = 160.0
+offset_bottom = -88.0
+theme_override_font_sizes/font_size = 16
+text = "[E] Open Shrine Shop"
+horizontal_alignment = 1
+
+[node name="Hint" type="Label" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -430.0
+offset_top = -28.0
+offset_right = -12.0
+offset_bottom = -8.0
+theme_override_font_sizes/font_size = 12
+modulate = Color(1, 1, 1, 0.45)
+text = "Wheel zoom   Shift sprint   Esc cursor"
+horizontal_alignment = 2
+mouse_filter = 2
+
+[node name="Radar" type="Control" parent="HUDRoot"]
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -150.0
+offset_top = -172.0
+offset_right = -12.0
+offset_bottom = -34.0
+mouse_filter = 2
+script = ExtResource("6")
+
+[node name="ModalBackdrop" type="ColorRect" parent="."]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+color = Color(0.02, 0.02, 0.05, 0.62)
+z_index = 5
+
+[node name="InventoryPanel" parent="." instance=ExtResource("2")]
+z_index = 10
+
+[node name="CollectionPanel" parent="." instance=ExtResource("3")]
+z_index = 10
+
+[node name="PartyPanel" parent="." instance=ExtResource("4")]
+z_index = 10
+
+[node name="ShopPanel" parent="." instance=ExtResource("5")]
+z_index = 10

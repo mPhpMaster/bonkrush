@@ -1,0 +1,18 @@
+# Godot
+game/.godot/
+game/addons/
+*.import
+
+# Next.js
+web/.next/
+web/node_modules/
+web/.env.local
+
+# Supabase
+supabase/.branches/
+supabase/.temp/
+
+# General
+*.env
+.DS_Store
+Thumbs.db

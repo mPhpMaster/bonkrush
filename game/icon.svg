@@ -1,0 +1,9 @@
+﻿<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="16" fill="#1a1a2e"/>
+  <circle cx="64" cy="55" r="30" fill="#e94560" opacity="0.9"/>
+  <path d="M34 55 Q64 20 94 55" stroke="#fff" stroke-width="3" fill="none"/>
+  <circle cx="64" cy="55" r="8" fill="#fff"/>
+  <rect x="30" y="53" width="68" height="4" fill="#fff"/>
+  <text x="64" y="105" text-anchor="middle" font-size="14" fill="#e94560" font-family="sans-serif" font-weight="bold">MONSTER RPG</text>
+</svg>
+
