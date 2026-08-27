@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BONKRUSH</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Cairo:wght@600;800;900&family=Lilita+One&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./css/style.css" />
+  </head>
+  <body>
+    <canvas id="view"></canvas>
+    <div id="boot">
+      <div id="boot-label">تحميل الموديلات</div>
+      <div id="boot-bar"><div id="boot-fill"></div></div>
+    </div>
+    <div id="grade"></div>
+    <div id="vignette"></div>
+    <div id="hurt-flash"></div>
+    <div id="dmg-layer"></div>
+    <div id="banner"></div>
+    <div id="toast"></div>
+    <div id="prompt"></div>
+    <div id="hint"></div>
+
+    <div id="hud">
+      <div class="top">
+        <div class="stat-stack">
+          <div class="bar hp">
+            <div id="hp-fill"></div>
+            <span id="hp-text">100 / 100</span>
+          </div>
+          <div class="bar xp">
+            <div id="xp-fill"></div>
+            <span id="xp-text">XP</span>
+          </div>
+        </div>
+        <div class="clock">
+          <div id="timer">0:00</div>
+          <div class="clock-sub">BONKRUSH</div>
+        </div>
+        <div class="pills">
+          <div class="pill">Lv <b id="lvl">1</b></div>
+          <div class="pill">☠ <b id="kills">0</b></div>
+          <div class="pill">◆ <b id="gold">0</b></div>
+        </div>
+      </div>
+      <div class="bar charge">
+        <div id="charge-fill"></div>
+        <span id="charge-text">CHARGE</span>
+      </div>
+      <div id="buffs" class="buffs"></div>
+      <div class="bottom">
+        <div id="weapon-strip"></div>
+        <canvas id="minimap" width="128" height="128"></canvas>
+      </div>
+    </div>
+
+    <div id="menu" class="overlay show">
+      <div class="panel hero-panel">
+        <p class="eyebrow">3D HORDE SURVIVOR</p>
+        <h1 id="title-ar">بونك رش</h1>
+        <h1 id="title-en">BONKRUSH</h1>
+        <p id="tagline" class="tag">اضرب. اجمع. صِرْ وحشاً.</p>
+        <div id="heroes" class="heroes"></div>
+        <div class="menu-actions">
+          <button id="btn-start" class="btn primary">ابدأ الجولة</button>
+          <button id="btn-how" class="btn ghost">كيف تلعب</button>
+          <button id="btn-quests" class="btn ghost">المهام</button>
+          <button id="btn-lang" class="btn ghost">EN</button>
+          <button id="btn-mute" class="btn ghost icon">🔊</button>
+        </div>
+        <div id="how" class="how">
+          <div id="how-text"></div>
+        </div>
+        <div id="quests" class="how">
+          <div id="quests-text"></div>
+        </div>
+        <p id="best-line" class="best"></p>
+      </div>
+    </div>
+
+    <div id="levelup" class="overlay">
+      <div class="panel">
+        <h2 id="levelup-title">مستوى</h2>
+        <p id="levelup-sub" class="sub"></p>
+        <div id="cards" class="cards"></div>
+        <div class="level-actions">
+          <button id="btn-reroll" class="btn ghost">إعادة سحب</button>
+          <button id="btn-skip" class="btn ghost">تخطي +شفاء</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="pause" class="overlay">
+      <div class="panel">
+        <h2 id="pause-title">إيقاف</h2>
+        <div id="pause-build" class="build"></div>
+        <div class="menu-actions">
+          <button id="btn-resume" class="btn primary">متابعة</button>
+          <button id="btn-quit" class="btn ghost">القائمة</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="shop" class="overlay">
+      <div class="panel">
+        <h2 id="shop-title">المواي</h2>
+        <p id="shop-sub" class="sub"></p>
+        <div id="shop-cards" class="cards"></div>
+        <button id="btn-shop-close" class="btn ghost">إغلاق</button>
+      </div>
+    </div>
+
+    <div id="end" class="overlay">
+      <div class="panel small">
+        <h2 id="end-title">النهاية</h2>
+        <div id="end-stats" class="end-stats"></div>
+        <p id="end-unlock" class="unlock"></p>
+        <button id="btn-again" class="btn primary">جولة أخرى</button>
+        <button id="btn-menu" class="btn ghost">القائمة</button>
+      </div>
+    </div>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+          "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="./js/main.js"></script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "bonkrush",
+  "private": true,
+  "version": "1.0.0",
+  "description": "3D horde-survivor like Megabonk — auto-attack, loot, go stupid strong.",
+  "scripts": {
+    "start": "npx --yes serve . -p 4173"
+  }
+}
