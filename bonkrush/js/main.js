@@ -22,6 +22,16 @@ import { ModelKit } from "./models.js";
 const TAU = Math.PI * 2;
 const SAVE_KEY = "bonkrush-save-v1";
 const MOVE_SCALE = 1.06;
+// Enemy pacing: a quiet first round, then the horde ramps up hard.
+const FIRST_ROUND_SECONDS = 60;
+const FIRST_ROUND_ENEMIES = 5;
+
+// How many enemies may be alive at once, t seconds into the run.
+function enemyCap(t, level) {
+  if (t < FIRST_ROUND_SECONDS) return FIRST_ROUND_ENEMIES;
+  const s = t - FIRST_ROUND_SECONDS;
+  return Math.min(280, FIRST_ROUND_ENEMIES + 0.9 * s + 0.0016 * s * s + (level - 1) * 4);
+}
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
@@ -1713,7 +1723,7 @@ class Game {
     this.buildAuraMesh();
     this.spawnWorldShrines();
     this.spawnWorldChests();
-    for (let i = 0; i < 12; i++) this.spawnEnemy(i < 4 ? "runner" : "grunt");
+    for (let i = 0; i < FIRST_ROUND_ENEMIES; i++) this.spawnEnemy("grunt");
 
     this.els.menu.classList.remove("show");
     this.els.end.classList.remove("show");
@@ -2563,6 +2573,8 @@ class Game {
   }
 
   spawnLevelWave() {
+    // Level-up waves start once the first round is over.
+    if (this.time < FIRST_ROUND_SECONDS) return;
     const n = 5 + Math.floor(this.level * 1.7);
     for (let i = 0; i < n; i++) {
       const r = Math.random();
@@ -3062,10 +3074,12 @@ class Game {
 
   updateEnemies(dt) {
     const p = this.player;
-    const cap = Math.min(280, 52 + this.time * 0.72 + this.level * 6);
+    const firstRound = this.time < FIRST_ROUND_SECONDS;
+    const cap = enemyCap(this.time, this.level);
     this.spawnAcc += dt;
-    const rate = Math.max(0.055, 0.46 - this.time * 0.0026 - this.level * 0.012);
-    const batch = this.time > 130 ? 3 : this.time > 35 ? 2 : 1;
+    const late = Math.max(0, this.time - FIRST_ROUND_SECONDS);
+    const rate = firstRound ? 2.4 : Math.max(0.055, 0.42 - late * 0.0026 - this.level * 0.012);
+    const batch = firstRound ? 1 : late > 120 ? 3 : late > 30 ? 2 : 1;
     while (this.spawnAcc >= rate && this.enemies.filter((e) => e.alive).length < cap) {
       this.spawnAcc -= rate;
       for (let b = 0; b < batch; b++) {
@@ -3073,7 +3087,7 @@ class Game {
         const t = this.time;
         let kind = "grunt";
         const r = Math.random();
-        if (t > 50 && r < 0.2) kind = "swarm";
+        if (t > FIRST_ROUND_SECONDS + 15 && r < 0.2) kind = "swarm";
         else if (t > 35 && r < 0.1) kind = "elite";
         else if (t > 28 && r < 0.28) kind = "spitter";
         else if (t > 18 && r < 0.48) kind = "tank";
