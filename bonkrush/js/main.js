@@ -25,12 +25,14 @@ const MOVE_SCALE = 1.06;
 // Enemy pacing: a quiet first round, then the horde ramps up hard.
 const FIRST_ROUND_SECONDS = 60;
 const FIRST_ROUND_ENEMIES = 5;
+// Most enemies alive at once; each one is an animated skinned model, so this sets the frame cost.
+const MAX_ENEMIES = 170;
 
 // How many enemies may be alive at once, t seconds into the run.
 function enemyCap(t, level) {
   if (t < FIRST_ROUND_SECONDS) return FIRST_ROUND_ENEMIES;
   const s = t - FIRST_ROUND_SECONDS;
-  return Math.min(280, FIRST_ROUND_ENEMIES + 0.9 * s + 0.0016 * s * s + (level - 1) * 4);
+  return Math.min(MAX_ENEMIES, FIRST_ROUND_ENEMIES + 0.8 * s + 0.0012 * s * s + (level - 1) * 3);
 }
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
@@ -761,6 +763,14 @@ class Game {
       this.keys.add(e.code);
       if (e.code === "Space" && !e.repeat && this.player) this.player.jumpBuf = 0.14;
       if (e.code === "Enter" && this.mode === "menu") this.startRun();
+      if (e.code === "Tab") {
+        e.preventDefault();
+        if (!e.repeat && this.mode === "run" && !this.choosing && !this.shopping) this.toggleBigMap();
+      }
+      if (e.code === "Escape" && this.mapOpen) {
+        this.toggleBigMap(false);
+        return;
+      }
       if (e.code === "Escape") {
         if (this.mode === "run") this.setPaused(!this.paused);
         else if (this.mode === "paused") this.setPaused(false);
@@ -796,6 +806,15 @@ class Game {
     for (const type of ["contextmenu", "mousedown", "mouseup", "auxclick", "pointerdown", "pointerup"]) {
       window.addEventListener(type, blockRight, true);
     }
+    // Hold the left mouse button (or F) to charge a smash.
+    this.mouseLeft = false;
+    view.addEventListener("mousedown", (e) => {
+      if (e.button === 0 && this.mode === "run") this.mouseLeft = true;
+    });
+    window.addEventListener("mouseup", (e) => {
+      if (e.button === 0) this.mouseLeft = false;
+    });
+    window.addEventListener("blur", () => (this.mouseLeft = false));
     document.addEventListener("pointerlockchange", () => {
       this.pointer.locked = document.pointerLockElement === view;
     });
@@ -1550,12 +1569,12 @@ class Game {
     $("btn-lang").textContent = this.lang === "ar" ? "EN" : "عربي";
     $("how-text").innerHTML = this.t(
       `<p>حرّك بـ <b>WASD</b> • الكاميرا بالماوس • <b>Shift</b> اندفاع • <b>مسافة</b> قفز</p>
-       <p>أسلحتك تضرب وحدها. اضغط مطولاً على <b>F</b> لشحن ضربة قوية.</p>
-       <p>قرب المزارات والصناديق واضغط <b>E</b>. عند الترقية: <b>R</b> إعادة سحب (ذهب) • <b>X</b> تخطي بشفاء.</p>
+       <p>أسلحتك تضرب وحدها. اضغط مطولاً على زر الفأرة الأيسر أو <b>F</b> لشحن ضربة قوية.</p>
+       <p><b>Tab</b> خريطة الجزيرة كاملة. قرب المزارات والصناديق واضغط <b>E</b>. عند الترقية: <b>R</b> إعادة سحب (ذهب) • <b>X</b> تخطي بشفاء.</p>
        <p>عِش <b>8 دقائق</b>. الوحوش تكبر، وأنت أيضاً.</p>`,
       `<p>Move with <b>WASD</b> • Mouse look • <b>Shift</b> dash • <b>Space</b> jump</p>
-       <p>Weapons attack on their own. Hold <b>F</b> to charge a smash.</p>
-       <p>Walk up to shrines and press <b>E</b>. On level-up: <b>R</b> reroll (gold) • <b>X</b> skip+heal.</p>
+       <p>Weapons attack on their own. Hold left-click or <b>F</b> to charge a smash.</p>
+       <p><b>Tab</b> opens the full island map. Walk up to shrines and press <b>E</b>. On level-up: <b>R</b> reroll (gold) • <b>X</b> skip+heal.</p>
        <p>Survive <b>8 minutes</b>. The horde scales. So do you.</p>`
     );
     $("btn-quests").textContent = this.t("المهام", "Quests");
@@ -1842,6 +1861,7 @@ class Game {
   }
 
   quitToMenu() {
+    this.toggleBigMap(false);
     this.mode = "menu";
     this.paused = false;
     this.choosing = false;
@@ -1894,7 +1914,7 @@ class Game {
   }
 
   updateCharge(dt) {
-    const hold = this.keys.has("KeyF");
+    const hold = this.keys.has("KeyF") || this.mouseLeft;
     const rate = 1.45 * (this.hero.chargeRate || 1);
     if (hold) {
       this.charging = true;
@@ -3041,7 +3061,7 @@ class Game {
     } else {
       e.mesh.visible = true;
       if (!e.mesh.userData.kit && e.mesh.userData.mat) e.mesh.userData.mat.color.setHex(kind.color);
-      if (kind.scale >= 1.25) setShadow(e.mesh, true, false);
+      if (bossDef) setShadow(e.mesh, true, false);
       if (!e.mesh.parent) this.scene.add(e.mesh);
     }
     e.alive = true;
@@ -3142,7 +3162,12 @@ class Game {
       e.mesh.position.set(e.x, e.y, e.z);
       e.mesh.lookAt(p.x, e.y, p.z);
       if (e.mesh.userData.kit) {
-        this.kit.playMove(e.mesh.userData, move > 0.2, dt);
+        // Far-off enemies animate at a lower rate; nobody can tell at that distance.
+        e.animAcc = (e.animAcc || 0) + dt;
+        if (dist < 14 || (dist < 40 && e.animAcc >= 0.045) || e.animAcc >= 0.11) {
+          this.kit.playMove(e.mesh.userData, move > 0.2, e.animAcc);
+          e.animAcc = 0;
+        }
       } else {
         e.mesh.userData.body.rotation.y = this.time * (e.kind === "runner" ? 8 : 3);
       }
@@ -3372,6 +3397,84 @@ class Game {
       this.els.buffs.innerHTML = chips.map((c) => `<div class="buff-chip">${c}</div>`).join("");
     }
     this.drawMinimap();
+    if (this.mapOpen) this.drawBigMap();
+  }
+
+  toggleBigMap(open = !this.mapOpen) {
+    this.mapOpen = open;
+    $("bigmap").classList.toggle("show", open);
+    if (!open) return;
+    $("bigmap-legend").innerHTML = [
+      ["#ffffff", this.t("أنت", "You")],
+      ["#c45ee0", this.t("مزار", "Shrine")],
+      ["#f0c14a", this.t("صندوق", "Chest")],
+      ["#7ad0ff", this.t("دكان المواي", "Moai shop")],
+      ["#e24b4b", this.t("وحوش", "Enemies")],
+      ["#5ab4e8", this.t("نهر", "River")],
+    ]
+      .map(([c, label]) => `<span><i style="background:${c}"></i>${label}</span>`)
+      .join("") + `<span>${this.t("Tab أو Esc للإغلاق", "Tab or Esc to close")}</span>`;
+    this.drawBigMap();
+  }
+
+  // Full-island map, north up, redrawn every frame while it is open.
+  drawBigMap() {
+    const cv = $("bigmap-canvas");
+    const css = Math.floor(Math.min(innerWidth, innerHeight - 70) * 0.86);
+    const dpr = Math.min(devicePixelRatio || 1, 1.5);
+    const size = Math.max(160, Math.floor(css * dpr));
+    if (cv.width !== size) {
+      cv.width = cv.height = size;
+      cv.style.width = cv.style.height = `${css}px`;
+    }
+    const ctx = cv.getContext("2d");
+    const R = ARENA_RADIUS;
+    const k = size / (2 * R);
+    const toX = (x) => (x + R) * k;
+    const toY = (z) => (z + R) * k;
+    ctx.clearRect(0, 0, size, size);
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, TAU);
+    ctx.clip();
+    ctx.fillStyle = "#1a5a86";
+    ctx.fillRect(0, 0, size, size);
+    if (this.terrainMap) {
+      ctx.imageSmoothingEnabled = true;
+      ctx.drawImage(this.terrainMap, 0, 0, size, size);
+    }
+    const dot = (x, z, s, color) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(toX(x) - s / 2, toY(z) - s / 2, s, s);
+    };
+    const u = Math.max(1, size / 420);
+    for (const e of this.enemies) if (e.alive) dot(e.x, e.z, (e.boss ? 7 : 2.5) * u, "#e24b4b");
+    for (const c of this.chests) if (!c.open) dot(c.x, c.z, 6 * u, "#f0c14a");
+    for (const s of this.shrines) {
+      if (s.used) continue;
+      ctx.strokeStyle = "#1a0f20";
+      ctx.lineWidth = 2 * u;
+      ctx.strokeRect(toX(s.x) - 4 * u, toY(s.z) - 4 * u, 8 * u, 8 * u);
+      dot(s.x, s.z, 8 * u, "#c45ee0");
+    }
+    if (this.shopKeep) dot(this.shopKeep.x, this.shopKeep.z, 10 * u, "#7ad0ff");
+    // Player arrow, pointing the way the camera faces.
+    const p = this.player;
+    const ang = Math.atan2(-Math.cos(this.camYaw), -Math.sin(this.camYaw));
+    ctx.translate(toX(p.x), toY(p.z));
+    ctx.rotate(ang + Math.PI / 2);
+    ctx.fillStyle = "#ffffff";
+    ctx.strokeStyle = "#0d0b08";
+    ctx.lineWidth = 2 * u;
+    ctx.beginPath();
+    ctx.moveTo(0, -11 * u);
+    ctx.lineTo(7 * u, 8 * u);
+    ctx.lineTo(0, 4 * u);
+    ctx.lineTo(-7 * u, 8 * u);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.fill();
+    ctx.restore();
   }
 
   drawMinimap() {
@@ -3497,6 +3600,7 @@ class Game {
   }
 
   endRun(won) {
+    this.toggleBigMap(false);
     this.mode = won ? "win" : "dead";
     this.paused = true;
     document.exitPointerLock?.();

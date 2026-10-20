@@ -567,3 +567,44 @@ h1 {
     width: 46vw;
   }
 }
+
+#bigmap {
+  position: fixed;
+  inset: 0;
+  display: none;
+  place-items: center;
+  align-content: center;
+  gap: 12px;
+  background: rgba(6, 10, 8, 0.58);
+  z-index: 4;
+  pointer-events: none;
+}
+#bigmap.show {
+  display: grid;
+}
+#bigmap-canvas {
+  border-radius: 50%;
+  border: 4px solid #1b1710;
+  box-shadow: 0 8px 0 #0d0b08, 0 0 40px rgba(0, 0, 0, 0.5);
+  background: #1a5a86;
+}
+#bigmap-legend {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 16px;
+  max-width: 92vw;
+  padding: 0 16px;
+  color: #fff4d8;
+  font-size: 14px;
+  font-weight: 700;
+  text-shadow: 0 2px 0 #0d0b08;
+}
+#bigmap-legend i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  margin-inline-end: 6px;
+  border-radius: 2px;
+  vertical-align: middle;
+}

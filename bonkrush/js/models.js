@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import * as SkeletonUtils from "three/addons/utils/SkeletonUtils.js";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 
 const ADV =
   "https://cdn.jsdelivr.net/gh/KayKit-Game-Assets/KayKit-Character-Pack-Adventures-1.0@main/addons/kaykit_character_pack_adventures/Characters/gltf/";
@@ -51,12 +52,42 @@ function fitToHeight(root, height) {
   root.position.y -= box2.min.y;
 }
 
-function collectMats(root) {
+// Fuses a model's skinned parts that share one skeleton and material into a single mesh.
+// The KayKit skeletons ship as ~9 parts, so this turns ~9 draw calls per enemy into 1-2.
+function mergeSkinnedParts(root) {
+  const groups = new Map();
+  root.traverse((n) => {
+    if (!n.isSkinnedMesh || Array.isArray(n.material)) return;
+    const key = n.skeleton.uuid + "|" + n.material.uuid;
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(n);
+  });
+  for (const parts of groups.values()) {
+    if (parts.length < 2) continue;
+    const first = parts[0];
+    const same = parts.every(
+      (p) => p.parent === first.parent && p.matrix.equals(first.matrix) && p.bindMatrix.equals(first.bindMatrix)
+    );
+    if (!same) continue;
+    const merged = mergeGeometries(parts.map((p) => p.geometry));
+    if (!merged) continue;
+    const mesh = new THREE.SkinnedMesh(merged, first.material);
+    mesh.name = first.name + "_merged";
+    mesh.position.copy(first.position);
+    mesh.quaternion.copy(first.quaternion);
+    mesh.scale.copy(first.scale);
+    first.parent.add(mesh);
+    mesh.bind(first.skeleton, first.bindMatrix);
+    for (const p of parts) p.parent.remove(p);
+  }
+}
+
+function collectMats(root, shadows = true) {
   const mats = [];
   root.traverse((n) => {
     if (!n.isMesh) return;
-    n.castShadow = true;
-    n.receiveShadow = true;
+    n.castShadow = shadows;
+    n.receiveShadow = shadows;
     if (Array.isArray(n.material)) {
       n.material = n.material.map((m) => m.clone());
       mats.push(...n.material);
@@ -102,6 +133,7 @@ export class ModelKit {
     for (const url of urls) {
       try {
         const gltf = await this.loader.loadAsync(url);
+        if (key.startsWith("enemy:")) mergeSkinnedParts(gltf.scene);
         this.cache.set(key, {
           scene: gltf.scene,
           clips: gltf.animations || [],
@@ -157,16 +189,21 @@ export class ModelKit {
     const spec = boss ? ENEMY_MODELS.boss : ENEMY_MODELS[kindId] || ENEMY_MODELS.grunt;
     const pack = this.cache.get("enemy:" + spec.file);
     if (!pack) return null;
-    return this._instance(pack, 1);
+    // Enemies rely on their blob shadow; only bosses cast a real one.
+    return this._instance(pack, 1, !!boss);
   }
 
-  _instance(pack, scaleMul) {
+  _instance(pack, scaleMul, shadows = true) {
     const model = SkeletonUtils.clone(pack.scene);
-    model.traverse((n) => {
-      n.frustumCulled = false;
-    });
     fitToHeight(model, pack.height * scaleMul);
-    const mats = collectMats(model);
+    // Cull with a generous fixed sphere: skinned bounds from the bind pose would clip swinging limbs.
+    model.traverse((n) => {
+      if (!n.isMesh) return;
+      if (!n.geometry.boundingSphere) n.geometry.computeBoundingSphere();
+      n.boundingSphere = n.geometry.boundingSphere.clone();
+      n.boundingSphere.radius *= 1.6;
+    });
+    const mats = collectMats(model, shadows);
     const mixer = new THREE.AnimationMixer(model);
     const idleClip = pickClip(pack.clips, ["idle", "wait", "stand"]);
     const walkClip = pickClip(pack.clips, ["run", "sprint", "jog", "walk", "move"]);
