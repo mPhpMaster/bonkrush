@@ -22,8 +22,8 @@ Opens http://localhost:4173
 
 - **WASD** move (camera-relative)
 - **Mouse** look (click the game to lock the pointer)
-- **Shift** dash
-- **Space** jump
+- **Shift** dash (also once in the air)
+- **Space** jump; tap for a short hop, hold for full height, press again in the air to double jump
 - **F** / **right-click** hold to charge a smash (release near full for Precision)
 - **E** activate a shrine or the Moai shop
 - **1 / 2 / 3** pick a level-up card

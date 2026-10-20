@@ -192,7 +192,7 @@ export class ModelKit {
     return { model, mixer, idle, walk, attack, mats, hand };
   }
 
-  playMove(ud, moving, dt) {
+  playMove(ud, moving, dt, rate = 1.15) {
     if (!ud?.mixer) return;
     ud.mixer.update(dt);
     if (!ud.walk || !ud.idle) return;
@@ -200,7 +200,7 @@ export class ModelKit {
     ud.moveW = ud.moveW == null ? t : ud.moveW + (t - ud.moveW) * Math.min(1, dt * 8);
     ud.walk.setEffectiveWeight(ud.moveW);
     ud.idle.setEffectiveWeight(1 - ud.moveW);
-    ud.walk.timeScale = moving ? 1.15 : 1;
+    ud.walk.timeScale = moving ? rate : 1;
   }
 
   playAttack(ud) {

@@ -21,6 +21,7 @@ import { ModelKit } from "./models.js";
 
 const TAU = Math.PI * 2;
 const SAVE_KEY = "bonkrush-save-v1";
+const MOVE_SCALE = 1.06;
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
@@ -96,6 +97,14 @@ function makeGrassTex() {
     ctx.arc(Math.random() * 512, Math.random() * 512, 1.5, 0, Math.PI * 2);
     ctx.fill();
   }
+  // Keep only the detail as brightness so the ground's vertex colors (grass, rock, snow) show through.
+  const img = ctx.getImageData(0, 0, 512, 512);
+  const px = img.data;
+  for (let i = 0; i < px.length; i += 4) {
+    const v = clamp((0.3 * px[i] + 0.59 * px[i + 1] + 0.11 * px[i + 2]) * 1.65, 0, 255);
+    px[i] = px[i + 1] = px[i + 2] = v;
+  }
+  ctx.putImageData(img, 0, 0);
   const tex = new THREE.CanvasTexture(c);
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(7, 7);
@@ -262,6 +271,73 @@ function rollTerrainFeatures() {
   return list;
 }
 
+// Tall peaks: high ground worth climbing for, with rock and snow on top.
+let MOUNTAINS = [];
+function rollMountains() {
+  const list = [];
+  const want = Math.max(3, Math.round(ARENA_RADIUS * ARENA_RADIUS * 0.0002));
+  for (let t = 0; t < want * 60 && list.length < want; t++) {
+    const a = rand(0, TAU);
+    const d = rand(40, ARENA_RADIUS - 26);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    const r = rand(20, 32);
+    if (Math.hypot(x - POND.x, z - POND.z) < r + 14) continue;
+    if (list.some((o) => Math.hypot(o.x - x, o.z - z) < (o.r + r) * 0.9)) continue;
+    list.push({ x, z, r, h: rand(12, 20), seed: rand(0, TAU) });
+  }
+  return list;
+}
+
+// Low ground: river valleys that wind in from the coast, carving passes through the hills.
+let VALLEYS = [];
+function rollValleys() {
+  const list = [];
+  const n = Math.max(2, Math.round(ARENA_RADIUS / 60));
+  const base = rand(0, TAU);
+  for (let i = 0; i < n; i++) {
+    let a = base + (i / n) * TAU + rand(-0.35, 0.35);
+    let d = ARENA_RADIUS + 4;
+    const stop = rand(26, ARENA_RADIUS * 0.4);
+    const pts = [[Math.cos(a) * d, Math.sin(a) * d]];
+    while (d > stop) {
+      d -= rand(14, 22);
+      a += rand(-0.22, 0.22);
+      pts.push([Math.cos(a) * Math.max(d, stop), Math.sin(a) * Math.max(d, stop)]);
+    }
+    const w = rand(7, 10);
+    const pad = w * 1.8;
+    const xs = pts.map((p) => p[0]);
+    const zs = pts.map((p) => p[1]);
+    list.push({
+      pts,
+      w,
+      depth: rand(3, 4.2),
+      box: [Math.min(...xs) - pad, Math.max(...xs) + pad, Math.min(...zs) - pad, Math.max(...zs) + pad],
+    });
+  }
+  return list;
+}
+
+function smooth01(t) {
+  t = clamp(t, 0, 1);
+  return t * t * (3 - 2 * t);
+}
+
+function distToPolyline(x, z, pts) {
+  let best = Infinity;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const ax = pts[i][0];
+    const az = pts[i][1];
+    const bx = pts[i + 1][0] - ax;
+    const bz = pts[i + 1][1] - az;
+    const t = clamp(((x - ax) * bx + (z - az) * bz) / (bx * bx + bz * bz), 0, 1);
+    const d = Math.hypot(x - ax - bx * t, z - az - bz * t);
+    if (d < best) best = d;
+  }
+  return best;
+}
+
 // Rolls a fresh map: layout orientation, landmark jitter and terrain features.
 function rollMap() {
   LAYOUT.ang = rand(0, TAU);
@@ -271,7 +347,11 @@ function rollMap() {
   for (const [o, bx, bz] of LANDMARK_BASE) {
     [o.x, o.z] = lay(bx * rand(0.85, 1.2), bz * rand(0.85, 1.2));
   }
-  TERRAIN_FEATURES = rollTerrainFeatures();
+  MOUNTAINS = rollMountains();
+  VALLEYS = rollValleys();
+  TERRAIN_FEATURES = rollTerrainFeatures().filter(
+    (f) => !MOUNTAINS.some((o) => Math.hypot(o.x - f.x, o.z - f.z) < o.r + f.r * 0.5)
+  );
 }
 
 function disposeTree(root) {
@@ -331,6 +411,31 @@ function heightAt(x, z) {
     h = f.h > 0 ? h + s : Math.max(h + s, Math.min(h, -1.5));
   }
 
+  for (const o of MOUNTAINS) {
+    const dx = x - o.x;
+    const dz = z - o.z;
+    const lim = o.r * 1.24;
+    if (dx > lim || dx < -lim || dz > lim || dz < -lim) continue;
+    const a = Math.atan2(dz, dx);
+    const r = o.r * (1 + Math.sin(a * 3 + o.seed) * 0.16 + Math.sin(a * 7 + o.seed * 2) * 0.06);
+    const t = 1 - Math.hypot(dx, dz) / r;
+    if (t <= 0) continue;
+    const ridges = Math.abs(Math.sin(a * 5 + o.seed)) * 0.18 + Math.abs(Math.sin(x * 0.21 + z * 0.17)) * 0.08;
+    h += o.h * Math.pow(t, 1.45) * (0.88 + ridges);
+  }
+
+  for (const v of VALLEYS) {
+    if (x < v.box[0] || x > v.box[1] || z < v.box[2] || z > v.box[3]) continue;
+    const vd = distToPolyline(x, z, v.pts);
+    if (vd >= v.w * 1.8) continue;
+    const t = 1 - vd / (v.w * 1.8);
+    h -= v.depth * smooth01(t * 1.4) + Math.max(0, h - 0.6) * smooth01(t * 1.6) * 0.6;
+    h = Math.max(h, -1.3);
+  }
+
+  // Let the high ground settle back down to the beach before the cliffs.
+  h = lerp(h, 0.4, smooth01((d - (ARENA_RADIUS - 22)) / 12));
+
   if (d > ARENA_RADIUS - 10) h += (d - (ARENA_RADIUS - 10)) * 0.22;
   if (d > ARENA_RADIUS - 4) h -= (d - (ARENA_RADIUS - 4)) * 1.15;
   return h;
@@ -338,6 +443,68 @@ function heightAt(x, z) {
 
 function inPond(x, z) {
   return Math.hypot(x - POND.x, z - POND.z) < POND.r;
+}
+
+function slopeAt(x, z) {
+  const e = 0.6;
+  return Math.hypot(heightAt(x + e, z) - heightAt(x - e, z), heightAt(x, z + e) - heightAt(x, z - e)) / (2 * e);
+}
+
+// Sand, grass, highland, rock and snow by height and steepness.
+function groundColor(x, z, y, c, steep = 0) {
+  const d = Math.hypot(x, z);
+  const n = Math.sin(x * 0.19) * Math.cos(z * 0.16) + Math.sin((x + z) * 0.07);
+  if (Math.hypot(x - POND.x, z - POND.z) < 9) c.setHex(0xc9b07a);
+  else if (y > 12.5) c.setHex(0xf2f5f8);
+  else if (y > 10.5) c.setHex(0xb8b4ac);
+  else if (steep > 1.05) c.setHex(0x8a8378);
+  else if (y > 6.5) c.setHex(0x7f9150);
+  else if (d > ARENA_RADIUS - 8 && y < 1.4) c.setHex(0xc2a86a);
+  else if (y < -0.5) c.setHex(n > 0 ? 0x2f8a46 : 0x3b9a52);
+  else if (y > 2.6) c.setHex(0x5f8a48);
+  else if (n > 0.42) c.setHex(0x5cb866);
+  else if (n < -0.38) c.setHex(0x3f8a4c);
+  else c.setHex(0x4ea35a);
+  return c;
+}
+
+// Top-down picture of this map's terrain for the minimap, covering [-R, R] on both axes.
+function makeTerrainMap(size = 256) {
+  const cv = document.createElement("canvas");
+  cv.width = cv.height = size;
+  const ctx = cv.getContext("2d");
+  const img = ctx.createImageData(size, size);
+  const c = new THREE.Color();
+  const R = ARENA_RADIUS;
+  for (let j = 0; j < size; j++) {
+    for (let i = 0; i < size; i++) {
+      const x = ((i + 0.5) / size) * 2 * R - R;
+      const z = ((j + 0.5) / size) * 2 * R - R;
+      const k = (j * size + i) * 4;
+      if (Math.hypot(x, z) > R) continue;
+      const y = heightAt(x, z);
+      groundColor(x, z, y, c);
+      const shade = 0.72 + clamp(y / 18, -0.2, 0.5);
+      img.data[k] = Math.min(255, c.r * 255 * shade);
+      img.data[k + 1] = Math.min(255, c.g * 255 * shade);
+      img.data[k + 2] = Math.min(255, c.b * 255 * shade);
+      img.data[k + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  ctx.strokeStyle = "rgba(90,180,240,0.9)";
+  ctx.lineWidth = 2;
+  for (const v of VALLEYS) {
+    ctx.beginPath();
+    v.pts.forEach(([x, z], i) => {
+      const px = ((x + R) / (2 * R)) * size;
+      const pz = ((z + R) / (2 * R)) * size;
+      if (i === 0) ctx.moveTo(px, pz);
+      else ctx.lineTo(px, pz);
+    });
+    ctx.stroke();
+  }
+  return cv;
 }
 
 function makeIslandGeometry(radius, rings = 40, segs = 80) {
@@ -350,13 +517,7 @@ function makeIslandGeometry(radius, rings = 40, segs = 80) {
     const y = heightAt(x, z);
     positions.push(x, y, z);
     uvs.push(x * 0.085, z * 0.085);
-    const d = Math.hypot(x, z);
-    const pond = Math.hypot(x - POND.x, z - POND.z);
-    if (pond < 9) c.setHex(0xc9b07a);
-    else if (y > 4.2) c.setHex(0x8a8378);
-    else if (y > 2.2) c.setHex(0x5f8a48);
-    else if (d > ARENA_RADIUS - 8) c.setHex(0xc2a86a);
-    else c.setHex(0x4ea35a);
+    groundColor(x, z, y, c, slopeAt(x, z));
     colors.push(c.r, c.g, c.b);
   };
   pushV(0, 0);
@@ -589,6 +750,7 @@ class Game {
 
     window.addEventListener("keydown", (e) => {
       this.keys.add(e.code);
+      if (e.code === "Space" && !e.repeat && this.player) this.player.jumpBuf = 0.14;
       if (e.code === "Enter" && this.mode === "menu") this.startRun();
       if (e.code === "Escape") {
         if (this.mode === "run") this.setPaused(!this.paused);
@@ -649,7 +811,7 @@ class Game {
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     this.scene = new THREE.Scene();
-    this.scene.fog = new THREE.Fog(0xffb080, 38, 118);
+    this.scene.fog = new THREE.Fog(0xffb080, 50, 150);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 260);
     this.camYaw = 0.4;
     this.camPitch = 0.34;
@@ -661,7 +823,7 @@ class Game {
     sun.castShadow = true;
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 6;
-    sun.shadow.camera.far = 110;
+    sun.shadow.camera.far = 130;
     sun.shadow.camera.left = -SHADOW_HALF;
     sun.shadow.camera.right = SHADOW_HALF;
     sun.shadow.camera.top = SHADOW_HALF;
@@ -808,6 +970,7 @@ class Game {
     ground.receiveShadow = true;
     ground.castShadow = true;
     this.world.add(ground);
+    this.terrainMap = makeTerrainMap(256);
 
     const foam = new THREE.Mesh(
       new THREE.RingGeometry(ARENA_RADIUS + 3.2, ARENA_RADIUS + 6.8, Math.round(64 * WS)),
@@ -879,6 +1042,7 @@ class Game {
 
     const stoneMat = toon(0x8d8678);
     const darkStone = toon(0x6e675c);
+    const dummy0 = new THREE.Object3D();
     for (let i = 0; i < 18; i++) {
       const a = rand(-0.9, 0.9) + Math.atan2(RIDGE.z, RIDGE.x);
       const d = rand(2, 11);
@@ -956,6 +1120,46 @@ class Game {
       shininess: 60,
     });
     addTrail(this.world, scalePts([[-14, 12], [-6, 8], [4, 4], [14, 0], [22, -4]]), streamMat, 0.85, 0.07);
+    for (const v of VALLEYS) addTrail(this.world, v.pts, streamMat, 1.6, 0.07);
+
+    // Summits: find each peak's top, mark it with a cairn, scatter boulders over the flanks.
+    const boulderM = [];
+    const cairnM = [];
+    for (const o of MOUNTAINS) {
+      let top = { x: o.x, z: o.z, y: heightAt(o.x, o.z) };
+      for (let k = 0; k < 60; k++) {
+        const x = o.x + rand(-6, 6);
+        const z = o.z + rand(-6, 6);
+        const y = heightAt(x, z);
+        if (y > top.y) top = { x, z, y };
+      }
+      o.top = top;
+      for (let s = 0; s < 3; s++) {
+        const cs = 0.8 - s * 0.2;
+        dummy0.position.set(top.x + 1.8, top.y + 0.4 + s * 0.62, top.z + 1.4);
+        dummy0.rotation.set(rand(0, 1), rand(0, TAU), 0);
+        dummy0.scale.setScalar(cs);
+        dummy0.updateMatrix();
+        cairnM.push(dummy0.matrix.clone());
+      }
+      for (let i = 0; i < 14; i++) {
+        const a = rand(0, TAU);
+        const d = rand(4, o.r * 0.85);
+        const x = o.x + Math.cos(a) * d;
+        const z = o.z + Math.sin(a) * d;
+        if (Math.hypot(x, z) > ARENA_RADIUS - 6) continue;
+        const sx = rand(1.1, 2.2);
+        dummy0.position.set(x, heightAt(x, z) + 0.35 * sx, z);
+        dummy0.rotation.set(rand(0, 1), rand(0, TAU), rand(0, 1));
+        dummy0.scale.set(sx, rand(0.8, 1.6), sx);
+        dummy0.updateMatrix();
+        boulderM.push(dummy0.matrix.clone());
+        this.obstacles.push({ x, z, r: 0.7 * sx });
+      }
+    }
+    const boulderGeo = new THREE.DodecahedronGeometry(0.7, 0);
+    this.world.add(makeInstanced(boulderGeo, darkStone, boulderM, true, true));
+    this.world.add(makeInstanced(boulderGeo, stoneMat, cairnM, true, false));
 
     for (let i = 0; i < 5; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.55), toon(0x8a6238));
@@ -980,10 +1184,18 @@ class Game {
     };
     const trunkM = [];
     const leafM = leafMats.map(() => []);
+    const pineM = [];
     const plantTree = (x, z, extraScale = 1) => {
       if (inPond(x, z) || Math.hypot(x, z) < 8) return;
       const y = heightAt(x, z);
+      if (y > 10 || slopeAt(x, z) > 0.9) return;
       place(trunkM, x, y + 1.1, z, 1);
+      if (y > 4.5) {
+        place(pineM, x, y + 2.6 * extraScale, z, extraScale * rand(0.9, 1.2), undefined, undefined, 0, rand(0, TAU));
+        place(pineM, x, y + 3.6 * extraScale, z, extraScale * rand(0.6, 0.8), undefined, undefined, 0, rand(0, TAU));
+        this.obstacles.push({ x, z, r: 0.85 * extraScale });
+        return;
+      }
       const li = (Math.random() * leafMats.length) | 0;
       place(leafM[li], x, y + 2.45, z, rand(1.0, 1.4) * extraScale);
       place(leafM[li], x + rand(-0.5, 0.5), y + 2.85, z + rand(-0.4, 0.4), rand(0.58, 0.9) * extraScale);
@@ -1010,7 +1222,27 @@ class Game {
         plantTree(gx + Math.cos(a) * d, gz + Math.sin(a) * d, rand(0.9, 1.25));
       }
     }
+    // Pine woods on the mountain shoulders.
+    for (const o of MOUNTAINS) {
+      for (let i = 0; i < 26; i++) {
+        const a = rand(0, TAU);
+        const d = rand(o.r * 0.3, o.r * 0.95);
+        plantTree(o.x + Math.cos(a) * d, o.z + Math.sin(a) * d, rand(0.95, 1.25));
+      }
+    }
+    // Woods along the valley floors.
+    for (const v of VALLEYS) {
+      for (let i = 0; i < 30; i++) {
+        const seg = (Math.random() * (v.pts.length - 1)) | 0;
+        const t = Math.random();
+        const x = lerp(v.pts[seg][0], v.pts[seg + 1][0], t) + rand(-1, 1) * v.w * 1.3;
+        const z = lerp(v.pts[seg][1], v.pts[seg + 1][1], t) + rand(-1, 1) * v.w * 1.3;
+        if (distToPolyline(x, z, v.pts) < 2.4) continue;
+        plantTree(x, z, rand(0.95, 1.25));
+      }
+    }
     this.world.add(makeInstanced(trunkGeo, trunkMat, trunkM, true, true));
+    this.world.add(makeInstanced(new THREE.ConeGeometry(1.2, 2.6, 7), toon(0x2a6a3c), pineM, true, true));
     leafMats.forEach((m, i) => this.world.add(makeInstanced(leafGeo, m, leafM[i], true, true)));
 
     const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
@@ -1051,7 +1283,7 @@ class Game {
       const d = rand(8, ARENA_RADIUS - 5);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
-      if (inPond(x, z)) continue;
+      if (inPond(x, z) || heightAt(x, z) > 10) continue;
       place(bushM, x, heightAt(x, z) + 0.32, z, rand(0.8, 1.5), rand(0.5, 0.95), rand(0.8, 1.5));
     }
     this.world.add(makeInstanced(bushGeo, bushMat, bushM, true, false));
@@ -1067,6 +1299,7 @@ class Game {
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
       const y = heightAt(x, z);
+      if (y > 10) continue;
       place(stemM, x, y + 0.2, z, 1);
       place(capM, x, y + 0.44, z, 1);
     }
@@ -1084,7 +1317,7 @@ class Game {
       const d = rand(7.2, ARENA_RADIUS - 6);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
-      if (inPond(x, z)) continue;
+      if (inPond(x, z) || heightAt(x, z) > 11) continue;
       dummy.position.set(x, heightAt(x, z) + 0.18, z);
       dummy.rotation.set(rand(-0.18, 0.18), rand(0, TAU), rand(-0.18, 0.18));
       dummy.scale.setScalar(rand(0.7, 1.7));
@@ -1421,6 +1654,16 @@ class Game {
       yaw: 0,
       grounded: true,
       dashCd: 0,
+      dashT: 0,
+      dashDx: 0,
+      dashDz: 0,
+      airDash: 1,
+      airJumps: 1,
+      coyote: 0,
+      jumpBuf: 0,
+      jumpHeld: false,
+      land: 0,
+      visYaw: 0,
       iframes: 1.6,
       hurtFlash: 0,
       radius: 0.48,
@@ -1678,6 +1921,11 @@ class Game {
   }
 
   spawnWorldShrines() {
+    // A shrine waits on top of most peaks: a reward for taking the high ground.
+    const peakKinds = ["power", "greed", "combat", "magnet"];
+    MOUNTAINS.forEach((o, i) => {
+      if (o.top && i < 5) this.spawnShrine(peakKinds[i % peakKinds.length], o.top.x, o.top.z);
+    });
     const kinds = ["combat", "greed", "magnet", "power", "moai"];
     kinds.forEach((id, i) => {
       const a = (i / kinds.length) * TAU + 0.3;
@@ -1938,42 +2186,102 @@ class Game {
       iz /= len;
       p.yaw = Math.atan2(ix, iz);
     }
+    const grounded = p.grounded;
+    const e = 0.6;
+    const gx = (heightAt(p.x + e, p.z) - heightAt(p.x - e, p.z)) / (2 * e);
+    const gz = (heightAt(p.x, p.z + e) - heightAt(p.x, p.z - e)) / (2 * e);
+    // Uphill is slower, downhill a little faster: high ground costs time to take.
+    const climb = len > 0 ? ix * gx + iz * gz : 0;
+    const slopeMul = grounded ? clamp(1 - climb * 0.32, 0.58, 1.22) : 1;
     const spdMul = this.charging ? 0.72 : 1;
-    const air = !p.grounded;
-    const spd = this.hero.speed * this.stats.speed * spdMul * (this.buffs.haste > 0 ? 1.2 : 1) * (air ? 1.08 : 1);
-    p.vx = lerp(p.vx, ix * spd, 1 - Math.pow(0.001, dt));
-    p.vz = lerp(p.vz, iz * spd, 1 - Math.pow(0.001, dt));
+    const spd = this.hero.speed * this.stats.speed * spdMul * slopeMul * (this.buffs.haste > 0 ? 1.2 : 1) * MOVE_SCALE;
+
+    // Quick to reach speed, quick to stop on the ground, floatier in the air.
+    let k;
+    if (!grounded) k = 1 - Math.pow(len > 0 ? 0.08 : 0.4, dt);
+    else if (len > 0) k = 1 - Math.pow(0.0004, dt);
+    else k = 1 - Math.pow(0.00002, dt);
+    if (p.dashT <= 0) {
+      p.vx = lerp(p.vx, ix * spd, k);
+      p.vz = lerp(p.vz, iz * spd, k);
+    }
 
     p.dashCd = Math.max(0, p.dashCd - dt);
-    if ((this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.keys.has("KeyQ")) && p.dashCd <= 0) {
+    const dashKey = this.keys.has("ShiftLeft") || this.keys.has("ShiftRight") || this.keys.has("KeyQ");
+    if (dashKey && p.dashCd <= 0 && (grounded || p.airDash > 0)) {
       const dx = len > 0 ? ix : Math.sin(p.yaw);
       const dz = len > 0 ? iz : Math.cos(p.yaw);
-      p.vx += dx * 18 * this.stats.dash;
-      p.vz += dz * 18 * this.stats.dash;
-      p.dashCd = 1.15 / this.stats.dash;
-      p.iframes = Math.max(p.iframes, 0.22);
+      p.dashDx = dx;
+      p.dashDz = dz;
+      p.dashT = 0.17;
+      p.dashCd = 1.05 / this.stats.dash;
+      if (!grounded) {
+        p.airDash -= 1;
+        p.vy = Math.max(p.vy, 1.5);
+      }
+      p.iframes = Math.max(p.iframes, 0.24);
       this.sfx.dash();
       this.spawnBurst(p.x, p.y + 0.6, p.z, 0xfff1a8, 8);
     }
-    if (this.keys.has("Space") && p.grounded) {
-      p.vy = 9.2;
-      p.grounded = false;
+    if (p.dashT > 0) {
+      p.dashT -= dt;
+      const ds = Math.max(spd, this.hero.speed) + 17 * Math.sqrt(this.stats.dash);
+      p.vx = p.dashDx * ds;
+      p.vz = p.dashDz * ds;
+      if (p.dashT <= 0) {
+        p.vx *= 0.55;
+        p.vz *= 0.55;
+      }
+    }
+
+    // Jump with coyote time, input buffering, variable height and one air jump.
+    p.coyote = grounded ? 0.12 : Math.max(0, p.coyote - dt);
+    p.jumpBuf = Math.max(0, p.jumpBuf - dt);
+    if (p.jumpBuf > 0) {
+      if (p.coyote > 0) {
+        p.vy = 9.8;
+        p.coyote = 0;
+        p.jumpBuf = 0;
+        p.jumpHeld = true;
+        p.grounded = false;
+      } else if (p.airJumps > 0) {
+        p.vy = 8.6;
+        p.airJumps -= 1;
+        p.jumpBuf = 0;
+        p.jumpHeld = true;
+        this.spawnBurst(p.x, p.y + 0.3, p.z, 0xdff4ff, 8);
+      }
+    }
+    if (p.jumpHeld && !this.keys.has("Space")) {
+      p.jumpHeld = false;
+      if (p.vy > 3.2) p.vy = 3.2;
     }
     const wasAir = !p.grounded;
-    p.vy -= 28 * dt;
+    const fallVy = p.vy;
+    p.vy -= (p.vy > 0 ? 27 : 38) * dt;
+    p.vy = Math.max(p.vy, -40);
     p.y += p.vy * dt;
     p.x += p.vx * dt;
     p.z += p.vz * dt;
     [p.x, p.z] = this.resolvePos(p.x, p.z, p.radius);
     const gy = heightAt(p.x, p.z);
-    if (p.y <= gy + 0.02) {
-      if (wasAir && p.vy < -1.5) this.spawnBurst(p.x, gy + 0.14, p.z, 0xc8b070, 7);
+    // Stick to the ground when walking down slopes instead of hopping off them.
+    const snap = !wasAir && p.vy <= 0 && p.y - gy < 0.9;
+    if (p.y <= gy + 0.02 || snap) {
+      if (wasAir && fallVy < -1.5) {
+        this.spawnBurst(p.x, gy + 0.14, p.z, 0xc8b070, fallVy < -16 ? 14 : 7);
+        if (fallVy < -16) this.shake = Math.max(this.shake, 0.18);
+        p.land = 0.16;
+      }
       p.y = gy;
       p.vy = 0;
       p.grounded = true;
+      p.airJumps = 1;
+      p.airDash = 1;
     } else {
       p.grounded = false;
     }
+    p.land = Math.max(0, (p.land || 0) - dt);
     p.iframes = Math.max(0, p.iframes - dt);
     p.hurtFlash = Math.max(0, p.hurtFlash - dt);
     this.hp = Math.min(this.stats.maxHp, this.hp + this.stats.regen * dt);
@@ -1982,10 +2290,16 @@ class Game {
     this.updateInteractPrompt();
 
     this.playerMesh.position.set(p.x, p.y, p.z);
-    this.playerMesh.rotation.y = p.yaw;
+    let dy = p.yaw - p.visYaw;
+    dy = Math.atan2(Math.sin(dy), Math.cos(dy));
+    p.visYaw += dy * (1 - Math.pow(0.000005, dt));
+    this.playerMesh.rotation.y = p.visYaw;
+    const hspd = Math.hypot(p.vx, p.vz);
+    const sq = p.land > 0 ? 1 - p.land * 0.9 : 1;
+    this.playerMesh.scale.set(2 - sq, sq, 2 - sq);
     const ud = this.playerMesh.userData;
     if (ud.kit) {
-      this.kit.playMove(ud, len > 0.12 && p.grounded, dt);
+      this.kit.playMove(ud, hspd > 1 && p.grounded, dt, clamp(hspd / this.hero.speed, 0.7, 1.8) * 1.1);
       this.kit.setCharge(ud, this.charging ? this.charge : 0);
       if (this.slashT > 0 && !this._atkPlayed) {
         this.kit.playAttack(ud);
@@ -2801,6 +3115,9 @@ class Game {
       if (this.buffs.freeze > 0 && !e.boss) move = 0;
       if (e.ranged && dist < 9 && dist > 4.5) move = 0.15;
       const curseSpd = 1 + (this.stats.curse || 0) * 0.25;
+      // Enemies slow down climbing toward a player on high ground.
+      const climb = heightAt(e.x + nx * 0.8, e.z + nz * 0.8) - e.y;
+      if (!e.boss) move *= clamp(1 - climb * 0.45, 0.5, 1.2);
       e.x += nx * e.speed * curseSpd * move * dt + e.kx * dt;
       e.z += nz * e.speed * curseSpd * move * dt + e.kz * dt;
       e.kx *= Math.pow(0.04, dt);
@@ -3059,6 +3376,12 @@ class Game {
     ctx.clip();
     ctx.translate(64, 64);
     ctx.rotate(this.camYaw);
+    if (this.terrainMap) {
+      const R = ARENA_RADIUS;
+      ctx.globalAlpha = 0.8;
+      ctx.drawImage(this.terrainMap, (-R - px) * scale, (-R - pz) * scale, 2 * R * scale, 2 * R * scale);
+      ctx.globalAlpha = 1;
+    }
     ctx.strokeStyle = "rgba(232,244,255,0.45)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -3113,25 +3436,49 @@ class Game {
 
   updateCamera(dt) {
     const p = this.player;
+    // Follow point: tight on x/z, eased on y so bumps and jumps don't jolt the view.
+    if (!this.camFocus) this.camFocus = new THREE.Vector3(p.x, p.y, p.z);
+    const f = this.camFocus;
+    f.x = p.x;
+    f.z = p.z;
+    f.y = Math.abs(f.y - p.y) > 12 ? p.y : lerp(f.y, p.y, 1 - Math.pow(p.grounded ? 0.0008 : 0.06, dt));
     const dist = 11.6 + this.stats.area * 0.35;
     const height = 4.6 + this.camPitch * 8.8;
-    const tx = p.x + Math.sin(this.camYaw) * dist * Math.cos(this.camPitch * 0.2);
-    const tz = p.z + Math.cos(this.camYaw) * dist;
+    const tx = f.x + Math.sin(this.camYaw) * dist * Math.cos(this.camPitch * 0.2);
+    const tz = f.z + Math.cos(this.camYaw) * dist;
+    let ty = f.y + height;
+    // Keep the camera above hills between it and the player.
+    for (let i = 1; i <= 4; i++) {
+      const t = i / 4;
+      const gh = heightAt(lerp(f.x, tx, t), lerp(f.z, tz, t)) + 0.9 + t * 0.6;
+      if (gh > lerp(f.y + 1.3, ty, t)) ty = f.y + 1.3 + (gh - f.y - 1.3) / t;
+    }
+    if (this.camY == null || Math.abs(this.camY - ty) > 30) this.camY = ty;
+    this.camY = lerp(this.camY, ty, 1 - Math.pow(ty > this.camY ? 0.0005 : 0.02, dt));
     this.shake *= Math.pow(0.004, dt);
     const sx = (Math.random() - 0.5) * this.shake * 2;
     const sy = (Math.random() - 0.5) * this.shake * 2;
-    this.camera.position.set(tx + sx, p.y + height + sy, tz + sx * 0.3);
-    this.camera.lookAt(p.x, p.y + 1.28, p.z);
-    this.followSun(p.x, p.z);
+    this.camera.position.set(tx + sx, this.camY + sy, tz + sx * 0.3);
+    this.camera.lookAt(f.x, f.y + 1.28, f.z);
+
+    // Widen the view a touch at speed.
+    const fov = 58 + clamp((Math.hypot(p.vx, p.vz) - this.hero.speed) * 0.7, 0, 9);
+    if (Math.abs(this.camera.fov - fov) > 0.05) {
+      this.camera.fov = lerp(this.camera.fov, fov, 1 - Math.pow(0.02, dt));
+      this.camera.updateProjectionMatrix();
+    }
+    this.followSun(p.x, p.z, p.y);
   }
 
-  followSun(x, z) {
+  followSun(x, z, y = 0) {
     // Snap to shadow texels so the moving frustum does not make shadows shimmer.
     const step = (SHADOW_HALF * 2) / this.sun.shadow.mapSize.x;
     const sx = Math.round(x / step) * step;
     const sz = Math.round(z / step) * step;
-    this.sun.position.set(sx + 28, 38, sz + 16);
-    this.sun.target.position.set(sx, 0, sz);
+    // Height moves in coarse steps so jumping does not slide the shadow map around.
+    y = Math.round(y / 6) * 6;
+    this.sun.position.set(sx + 28, y + 38, sz + 16);
+    this.sun.target.position.set(sx, y, sz);
   }
 
   endRun(won) {
@@ -3236,4 +3583,5 @@ class Game {
   }
 }
 
-new Game();
+const game = new Game();
+if (new URLSearchParams(location.search).has("debug")) window.bonk = game;
