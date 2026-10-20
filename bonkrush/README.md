@@ -25,7 +25,7 @@ Opens http://localhost:4173
 - **Shift** dash (also once in the air)
 - **Space** jump; tap for a short hop, hold for full height, press again in the air to double jump
 - **Left-click** / **F** hold to charge a smash (release near full for Precision)
-- **Tab** open or close the full island map
+- **Tab** hold to show the full island map
 - **E** activate a shrine or the Moai shop
 - **1 / 2 / 3** pick a level-up card
 - **R** reroll cards (costs gold)

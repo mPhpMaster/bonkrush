@@ -763,7 +763,8 @@ class Game {
       if (e.code === "Enter" && this.mode === "menu") this.startRun();
       if (e.code === "Tab") {
         e.preventDefault();
-        if (!e.repeat && this.mode === "run" && !this.choosing && !this.shopping) this.toggleBigMap();
+        // The map shows only while Tab is held down.
+        if (!this.mapOpen && this.mode === "run" && !this.choosing && !this.shopping) this.toggleBigMap(true);
       }
       if (e.code === "Escape" && this.mapOpen) {
         this.toggleBigMap(false);
@@ -787,8 +788,14 @@ class Game {
         e.preventDefault();
       }
     });
-    window.addEventListener("keyup", (e) => this.keys.delete(e.code));
-    window.addEventListener("blur", () => this.keys.clear());
+    window.addEventListener("keyup", (e) => {
+      this.keys.delete(e.code);
+      if (e.code === "Tab") this.toggleBigMap(false);
+    });
+    window.addEventListener("blur", () => {
+      this.keys.clear();
+      this.toggleBigMap(false);
+    });
 
     const view = $("view");
     view.addEventListener("click", () => {
@@ -1568,11 +1575,11 @@ class Game {
     $("how-text").innerHTML = this.t(
       `<p>حرّك بـ <b>WASD</b> • الكاميرا بالماوس • <b>Shift</b> اندفاع • <b>مسافة</b> قفز</p>
        <p>أسلحتك تضرب وحدها. اضغط مطولاً على زر الفأرة الأيسر أو <b>F</b> لشحن ضربة قوية.</p>
-       <p><b>Tab</b> خريطة الجزيرة كاملة. قرب المزارات والصناديق واضغط <b>E</b>. عند الترقية: <b>R</b> إعادة سحب (ذهب) • <b>X</b> تخطي بشفاء.</p>
+       <p>اضغط مطولاً على <b>Tab</b> لخريطة الجزيرة كاملة. قرب المزارات والصناديق واضغط <b>E</b>. عند الترقية: <b>R</b> إعادة سحب (ذهب) • <b>X</b> تخطي بشفاء.</p>
        <p>عِش <b>8 دقائق</b>. الوحوش تكبر، وأنت أيضاً.</p>`,
       `<p>Move with <b>WASD</b> • Mouse look • <b>Shift</b> dash • <b>Space</b> jump</p>
        <p>Weapons attack on their own. Hold left-click or <b>F</b> to charge a smash.</p>
-       <p><b>Tab</b> opens the full island map. Walk up to shrines and press <b>E</b>. On level-up: <b>R</b> reroll (gold) • <b>X</b> skip+heal.</p>
+       <p>Hold <b>Tab</b> for the full island map. Walk up to shrines and press <b>E</b>. On level-up: <b>R</b> reroll (gold) • <b>X</b> skip+heal.</p>
        <p>Survive <b>8 minutes</b>. The horde scales. So do you.</p>`
     );
     $("btn-quests").textContent = this.t("المهام", "Quests");
@@ -3408,7 +3415,7 @@ class Game {
       ["#5ab4e8", this.t("نهر", "River")],
     ]
       .map(([c, label]) => `<span><i style="background:${c}"></i>${label}</span>`)
-      .join("") + `<span>${this.t("Tab أو Esc للإغلاق", "Tab or Esc to close")}</span>`;
+      .join("") + `<span>${this.t("اترك Tab للإغلاق", "Release Tab to close")}</span>`;
     this.drawBigMap();
   }
 
