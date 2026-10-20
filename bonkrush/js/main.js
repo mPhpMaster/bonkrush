@@ -22,17 +22,15 @@ import { ModelKit } from "./models.js";
 const TAU = Math.PI * 2;
 const SAVE_KEY = "bonkrush-save-v1";
 const MOVE_SCALE = 1.06;
-// Enemy pacing: a quiet first round, then the horde ramps up hard.
-const FIRST_ROUND_SECONDS = 60;
-const FIRST_ROUND_ENEMIES = 5;
+// Enemy pacing is time-based: a wave every few seconds that grows over the run.
+const WAVE_EVERY = 5;
+const FIRST_WAVE = 5;
 // Most enemies alive at once; each one is an animated skinned model, so this sets the frame cost.
 const MAX_ENEMIES = 170;
 
-// How many enemies may be alive at once, t seconds into the run.
-function enemyCap(t, level) {
-  if (t < FIRST_ROUND_SECONDS) return FIRST_ROUND_ENEMIES;
-  const s = t - FIRST_ROUND_SECONDS;
-  return Math.min(MAX_ENEMIES, FIRST_ROUND_ENEMIES + 0.8 * s + 0.0012 * s * s + (level - 1) * 3);
+// Enemies in the wave that spawns t seconds into the run: 5 at the start, +1 every 30 s.
+function waveSize(t) {
+  return FIRST_WAVE + Math.floor(t / 30);
 }
 const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
@@ -1720,7 +1718,7 @@ class Game {
     this.spit = [];
     this.shrines = [];
     this.shopKeep = null;
-    this.spawnAcc = 0.2;
+    this.spawnAcc = 0;
     this.chestAcc = 12;
     this.nextBoss = 0;
     this.killBannerT = 0;
@@ -1742,7 +1740,7 @@ class Game {
     this.buildAuraMesh();
     this.spawnWorldShrines();
     this.spawnWorldChests();
-    for (let i = 0; i < FIRST_ROUND_ENEMIES; i++) this.spawnEnemy("grunt");
+    for (let i = 0; i < FIRST_WAVE; i++) this.spawnEnemy("grunt");
 
     this.els.menu.classList.remove("show");
     this.els.end.classList.remove("show");
@@ -2593,8 +2591,8 @@ class Game {
   }
 
   spawnLevelWave() {
-    // Level-up waves start once the first round is over.
-    if (this.time < FIRST_ROUND_SECONDS) return;
+    // Spawning is purely time-based now (see waveSize), so level-ups add no extra wave.
+    return;
     const n = 5 + Math.floor(this.level * 1.7);
     for (let i = 0; i < n; i++) {
       const r = Math.random();
@@ -3094,27 +3092,24 @@ class Game {
 
   updateEnemies(dt) {
     const p = this.player;
-    const firstRound = this.time < FIRST_ROUND_SECONDS;
-    const cap = enemyCap(this.time, this.level);
     this.spawnAcc += dt;
-    const late = Math.max(0, this.time - FIRST_ROUND_SECONDS);
-    const rate = firstRound ? 2.4 : Math.max(0.055, 0.42 - late * 0.0026 - this.level * 0.012);
-    const batch = firstRound ? 1 : late > 120 ? 3 : late > 30 ? 2 : 1;
-    while (this.spawnAcc >= rate && this.enemies.filter((e) => e.alive).length < cap) {
-      this.spawnAcc -= rate;
-      for (let b = 0; b < batch; b++) {
-        if (this.enemies.filter((e) => e.alive).length >= cap) break;
-        const t = this.time;
+    if (this.spawnAcc >= WAVE_EVERY) {
+      this.spawnAcc -= WAVE_EVERY;
+      const t = this.time;
+      let alive = this.enemies.filter((e) => e.alive).length;
+      let left = waveSize(t);
+      while (left > 0 && alive < MAX_ENEMIES) {
         let kind = "grunt";
         const r = Math.random();
-        if (t > FIRST_ROUND_SECONDS + 15 && r < 0.2) kind = "swarm";
+        if (t > 75 && r < 0.12 && left >= 5) kind = "swarm";
         else if (t > 35 && r < 0.1) kind = "elite";
         else if (t > 28 && r < 0.28) kind = "spitter";
         else if (t > 18 && r < 0.48) kind = "tank";
         else if (t > 8 && r < 0.7) kind = "runner";
-        if (kind === "swarm") {
-          for (let s = 0; s < 5; s++) this.spawnEnemy("swarm");
-        } else this.spawnEnemy(kind);
+        const n = kind === "swarm" ? 5 : 1;
+        for (let s = 0; s < n; s++) this.spawnEnemy(kind);
+        left -= n;
+        alive += n;
       }
     }
 
