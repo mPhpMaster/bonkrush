@@ -22,6 +22,11 @@ import { ModelKit } from "./models.js";
 const TAU = Math.PI * 2;
 const SAVE_KEY = "bonkrush-save-v1";
 const MOVE_SCALE = 1.06;
+// Camera orbit: pitch is the elevation angle in radians, distance is zoomed with the wheel.
+const CAM_PITCH_MIN = -0.12;
+const CAM_PITCH_MAX = 1.2;
+const CAM_DIST_MIN = 5;
+const CAM_DIST_MAX = 20;
 // Enemy pacing is time-based: a wave every few seconds that grows over the run.
 const WAVE_EVERY = 5;
 const FIRST_WAVE = 5;
@@ -451,6 +456,16 @@ function heightAt(x, z) {
   return h;
 }
 
+// Lowest ground under a footprint of radius r, so props on slopes don't hover on their downhill side.
+function groundY(x, z, r) {
+  let y = heightAt(x, z);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * TAU;
+    y = Math.min(y, heightAt(x + Math.cos(a) * r, z + Math.sin(a) * r));
+  }
+  return y;
+}
+
 function inPond(x, z) {
   return Math.hypot(x - POND.x, z - POND.z) < POND.r;
 }
@@ -649,6 +664,84 @@ function weightedRarity(luck) {
   return "common";
 }
 
+// Left-click (or F) specials, one per hero. Hold to charge; a near-full charge is a Precision crit.
+const HERO_SPECIALS = {
+  // Rook: the original bonk, a wide cone in front plus a small ring.
+  rook: {
+    name: "بونك!",
+    nameEn: "BONK",
+    fire(g, p, power, dmg) {
+      const range = 3.2 * g.stats.area * (1 + power * 1.1);
+      g.slashT = 0.22;
+      g.slashGroup.position.set(p.x, 0.18 + p.y, p.z);
+      g.slashGroup.rotation.y = p.yaw;
+      g.hitCone(p.x, p.z, p.yaw, range, 1.7, dmg, 7 + power * 6);
+      g.hitCircle(p.x, p.z, range * 0.55, dmg * 0.55, 5, "charge", 0.05);
+      g.spawnBurst(p.x, p.y + 0.4, p.z, 0xfff1a8, 10 + Math.floor(power * 10));
+    },
+  },
+  // Grom: earthquake, a big ring around him that throws everything back.
+  grom: {
+    name: "زلزال",
+    nameEn: "QUAKE",
+    fire(g, p, power, dmg) {
+      const r = 4.2 * g.stats.area * (1 + power * 0.9);
+      g.hitCircle(p.x, p.z, r, dmg * 1.1, 13 + power * 8, "charge", 0.05);
+      g.shake = Math.max(g.shake, 0.4 + power * 0.4);
+      for (let i = 0; i < 12; i++) {
+        const a = (i / 12) * TAU;
+        g.spawnBurst(p.x + Math.cos(a) * r * 0.8, p.y + 0.2, p.z + Math.sin(a) * r * 0.8, 0xc8a070, 3);
+      }
+    },
+  },
+  // Vex: arcane nova, a ring of bolts flying out in every direction.
+  vex: {
+    name: "نوفا",
+    nameEn: "NOVA",
+    fire(g, p, power, dmg) {
+      const n = 8 + Math.round(power * 10);
+      for (let i = 0; i < n; i++) {
+        const a = (i / n) * TAU;
+        g.spawnBolt(p.x, p.z, Math.sin(a), Math.cos(a), dmg * 0.6, { speed: 15, knock: 4 }, 0xb070ff);
+      }
+      g.spawnBurst(p.x, p.y + 0.8, p.z, 0xb070ff, 14);
+    },
+  },
+  // Nyla: shadow step, a long invulnerable dash that cuts through everything in the way.
+  nyla: {
+    name: "خطوة الظل",
+    nameEn: "SHADOW STEP",
+    fire(g, p, power, dmg) {
+      const fx = Math.sin(p.yaw);
+      const fz = Math.cos(p.yaw);
+      const len = 6 + power * 6;
+      for (let s = 0; s <= 6; s++) {
+        const d = (s / 6) * len;
+        g.hitCircle(p.x + fx * d, p.z + fz * d, 1.5 * g.stats.area, dmg * 0.8, 6, "charge" + s, 0.05);
+        g.spawnBurst(p.x + fx * d, p.y + 0.6, p.z + fz * d, 0x5a3a8a, 2);
+      }
+      p.dashDx = fx;
+      p.dashDz = fz;
+      p.dashT = 0.22;
+      p.iframes = Math.max(p.iframes, 0.5);
+    },
+  },
+  // Kett: coin shot, a shotgun fan of gold bolts in front.
+  kett: {
+    name: "رشقة ذهب",
+    nameEn: "COIN SHOT",
+    fire(g, p, power, dmg) {
+      const n = 5 + Math.round(power * 6);
+      const spread = 0.9;
+      for (let i = 0; i < n; i++) {
+        const a = p.yaw + (n === 1 ? 0 : (i / (n - 1) - 0.5) * spread);
+        g.spawnBolt(p.x, p.z, Math.sin(a), Math.cos(a), dmg * 0.7, { speed: 22, knock: 5 }, 0xf0c14a);
+      }
+      g.spawnBurst(p.x, p.y + 0.8, p.z, 0xf0c14a, 10);
+    },
+  },
+};
+
 class Game {
   constructor() {
     this.sfx = new Sfx();
@@ -827,8 +920,18 @@ class Game {
       // Mouse always steers the camera in play, even if the browser refused pointer lock.
       if (!this.pointer.locked && !(this.mode === "run" && !this.choosing && !this.shopping)) return;
       this.camYaw -= e.movementX * 0.0022;
-      this.camPitch = clamp(this.camPitch - e.movementY * 0.0016, 0.16, 0.85);
+      // Mouse up looks up (camera drops toward the ground), mouse down looks down from above.
+      this.camPitch = clamp(this.camPitch + e.movementY * 0.0018, CAM_PITCH_MIN, CAM_PITCH_MAX);
     });
+    view.addEventListener(
+      "wheel",
+      (e) => {
+        if (this.mode !== "run") return;
+        e.preventDefault();
+        this.camDist = clamp(this.camDist + e.deltaY * 0.008, CAM_DIST_MIN, CAM_DIST_MAX);
+      },
+      { passive: false }
+    );
     window.addEventListener("resize", () => this.resize());
   }
 
@@ -849,7 +952,8 @@ class Game {
     this.scene.fog = new THREE.Fog(0xffb080, 50, 150);
     this.camera = new THREE.PerspectiveCamera(58, 1, 0.1, 260);
     this.camYaw = 0.4;
-    this.camPitch = 0.34;
+    this.camPitch = 0.42;
+    this.camDist = 11.6;
 
     const hemi = new THREE.HemisphereLight(0xffe2b8, 0x1a3358, 0.5);
     this.scene.add(hemi);
@@ -1085,7 +1189,7 @@ class Game {
       const z = RIDGE.z + Math.sin(a) * d;
       if (Math.hypot(x, z) > ARENA_RADIUS - 4) continue;
       const rock = new THREE.Mesh(new THREE.DodecahedronGeometry(rand(0.7, 1.5), 0), stoneMat);
-      rock.position.set(x, heightAt(x, z) + 0.55, z);
+      rock.position.set(x, groundY(x, z, 0.9) + 0.45, z);
       rock.rotation.set(rand(0, 1), rand(0, TAU), rand(0, 1));
       rock.scale.set(rand(0.8, 1.6), rand(0.7, 1.8), rand(0.8, 1.5));
       rock.castShadow = true;
@@ -1094,7 +1198,7 @@ class Game {
       this.obstacles.push({ x, z, r: 0.7 * rock.scale.x });
     }
 
-    const towerY = heightAt(MESA.x, MESA.z);
+    const towerY = groundY(MESA.x, MESA.z, 1.4);
     const tower = new THREE.Mesh(new THREE.CylinderGeometry(1.05, 1.45, 4.6, 8), darkStone);
     tower.position.set(MESA.x, towerY + 2.3, MESA.z);
     tower.castShadow = true;
@@ -1112,7 +1216,7 @@ class Game {
     this.obstacles.push({ x: MESA.x, z: MESA.z, r: 1.9 });
 
     const [archX, archZ] = lay(4, -18);
-    const archY = heightAt(archX, archZ);
+    const archY = groundY(archX, archZ, 1.8);
     const ax = LAYOUT.cos * 1.5;
     const az = LAYOUT.sin * 1.5;
     const pillarGeo = new THREE.BoxGeometry(0.7, 3.2, 0.7);
@@ -1133,7 +1237,7 @@ class Game {
       const x = CRATER.x + Math.cos(a) * 4.2;
       const z = CRATER.z + Math.sin(a) * 4.2;
       const menhir = new THREE.Mesh(new THREE.BoxGeometry(0.7, rand(2.2, 3.4), 0.45), darkStone);
-      menhir.position.set(x, heightAt(x, z) + 1.4, z);
+      menhir.position.set(x, groundY(x, z, 0.4) + 1.4, z);
       menhir.rotation.y = a;
       menhir.castShadow = true;
       this.world.add(menhir);
@@ -1184,7 +1288,7 @@ class Game {
         const z = o.z + Math.sin(a) * d;
         if (Math.hypot(x, z) > ARENA_RADIUS - 6) continue;
         const sx = rand(1.1, 2.2);
-        dummy0.position.set(x, heightAt(x, z) + 0.35 * sx, z);
+        dummy0.position.set(x, groundY(x, z, 0.7 * sx) + 0.3 * sx, z);
         dummy0.rotation.set(rand(0, 1), rand(0, TAU), rand(0, 1));
         dummy0.scale.set(sx, rand(0.8, 1.6), sx);
         dummy0.updateMatrix();
@@ -1222,7 +1326,7 @@ class Game {
     const pineM = [];
     const plantTree = (x, z, extraScale = 1) => {
       if (inPond(x, z) || Math.hypot(x, z) < 8) return;
-      const y = heightAt(x, z);
+      const y = groundY(x, z, 0.4);
       if (y > 10 || slopeAt(x, z) > 0.9) return;
       place(trunkM, x, y + 1.1, z, 1);
       if (y > 4.5) {
@@ -1289,7 +1393,7 @@ class Game {
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
       const sx = rand(0.6, 1.45);
-      place(rockM, x, heightAt(x, z) + 0.28, z, sx, rand(0.45, 1.1), rand(0.6, 1.45), rand(0, 1), rand(0, TAU), rand(0, 1));
+      place(rockM, x, groundY(x, z, 0.7 * sx) + 0.22, z, sx, rand(0.45, 1.1), rand(0.6, 1.45), rand(0, 1), rand(0, TAU), rand(0, 1));
       this.obstacles.push({ x, z, r: 0.7 * sx });
     }
     this.world.add(makeInstanced(rockGeo, stoneMat, rockM, true, true));
@@ -1300,7 +1404,7 @@ class Game {
       const d = 15 * WS;
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
-      const y = heightAt(x, z);
+      const y = groundY(x, z, 1.1);
       const block = new THREE.Mesh(new THREE.BoxGeometry(2.2, 1.6, 0.7), ruinMat);
       block.position.set(x, y + 0.8, z);
       block.rotation.y = a;
@@ -1319,7 +1423,7 @@ class Game {
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z) || heightAt(x, z) > 10) continue;
-      place(bushM, x, heightAt(x, z) + 0.32, z, rand(0.8, 1.5), rand(0.5, 0.95), rand(0.8, 1.5));
+      place(bushM, x, groundY(x, z, 0.6) + 0.28, z, rand(0.8, 1.5), rand(0.5, 0.95), rand(0.8, 1.5));
     }
     this.world.add(makeInstanced(bushGeo, bushMat, bushM, true, false));
 
@@ -1333,7 +1437,7 @@ class Game {
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
-      const y = heightAt(x, z);
+      const y = groundY(x, z, 0.12);
       if (y > 10) continue;
       place(stemM, x, y + 0.2, z, 1);
       place(capM, x, y + 0.44, z, 1);
@@ -1574,11 +1678,11 @@ class Game {
     $("btn-lang").textContent = this.lang === "ar" ? "EN" : "عربي";
     $("how-text").innerHTML = this.t(
       `<p>حرّك بـ <b>WASD</b> • الكاميرا بالماوس • <b>Shift</b> اندفاع • <b>مسافة</b> قفز</p>
-       <p>أسلحتك تضرب وحدها. اضغط مطولاً على زر الفأرة الأيسر أو <b>F</b> لشحن ضربة قوية.</p>
+       <p>أسلحتك تضرب وحدها. اضغط مطولاً على زر الفأرة الأيسر أو <b>F</b> لشحن قدرة شخصيتك الخاصة: روك بونك، غروم زلزال، فِكس نوفا، نايلا خطوة الظل، كيت رشقة ذهب.</p>
        <p>اضغط مطولاً على <b>Tab</b> لخريطة الجزيرة كاملة. قرب المزارات والصناديق واضغط <b>E</b>. عند الترقية: <b>R</b> إعادة سحب (ذهب) • <b>X</b> تخطي بشفاء.</p>
        <p>عِش <b>8 دقائق</b>. الوحوش تكبر، وأنت أيضاً.</p>`,
       `<p>Move with <b>WASD</b> • Mouse look • <b>Shift</b> dash • <b>Space</b> jump</p>
-       <p>Weapons attack on their own. Hold left-click or <b>F</b> to charge a smash.</p>
+       <p>Weapons attack on their own. Hold left-click or <b>F</b> to charge your hero's special: Rook BONK, Grom QUAKE, Vex NOVA, Nyla SHADOW STEP, Kett COIN SHOT.</p>
        <p>Hold <b>Tab</b> for the full island map. Walk up to shrines and press <b>E</b>. On level-up: <b>R</b> reroll (gold) • <b>X</b> skip+heal.</p>
        <p>Survive <b>8 minutes</b>. The horde scales. So do you.</p>`
     );
@@ -1666,6 +1770,8 @@ class Game {
       crit: 0.06,
       critDmg: 2,
       dash: 1,
+      jumps: 1,
+      jumpHeight: 1,
       armor: 0,
       duration: 1,
       goldFind: 1,
@@ -1941,20 +2047,18 @@ class Game {
     const power = this.charge;
     const precise = power >= 0.84;
     const dmg = (28 + this.level * 1.4) * this.stats.damage * (0.7 + power * 2.4) * (precise ? this.stats.critDmg : 1);
-    const range = 3.2 * this.stats.area * (1 + power * 1.1);
-    this.slashT = 0.22;
-    this.slashGroup.position.set(p.x, 0.18 + p.y, p.z);
-    this.slashGroup.rotation.y = p.yaw;
+    const before = this.kills;
     this.shake = Math.max(this.shake, 0.18 + power * 0.35);
     this.sfx.bonk();
     if (precise) this.sfx.crit();
-    const before = this.kills;
-    this.hitCone(p.x, p.z, p.yaw, range, 1.7, dmg, 7 + power * 6);
-    this.hitCircle(p.x, p.z, range * 0.55, dmg * 0.55, 5, "charge", 0.05);
-    this.spawnBurst(p.x, p.y + 0.4, p.z, precise ? 0xffd24a : 0xfff1a8, 10 + Math.floor(power * 10));
+    // Each hero's left-click (or F) special.
+    const special = HERO_SPECIALS[this.hero.id] || HERO_SPECIALS.rook;
+    special.fire(this, p, power, dmg, precise);
+    if (this.hero.id !== "rook" && this.playerMesh.userData.kit) this.kit.playAttack(this.playerMesh.userData);
     this.chargeKills += Math.max(0, this.kills - before);
-    this.floatText(p.x, p.y + 2.2, p.z, precise ? "PREC" : "BONK", precise ? "#ffd24a" : "#fff8d0");
+    this.floatText(p.x, p.y + 2.2, p.z, this.t(special.name, special.nameEn), precise ? "#ffd24a" : "#fff8d0");
   }
+
 
   spawnWorldShrines() {
     // A shrine waits on top of most peaks: a reward for taking the high ground.
@@ -1992,7 +2096,7 @@ class Game {
     );
     stone.position.y = 1.1;
     g.add(base, stone);
-    g.position.set(x, heightAt(x, z), z);
+    g.position.set(x, groundY(x, z, 0.8), z);
     this.scene.add(g);
     this.shrines.push({ id, mesh: g, x, z, used: false });
   }
@@ -2012,7 +2116,7 @@ class Game {
     const eye = new THREE.Mesh(new THREE.SphereGeometry(0.12, 6, 6), new THREE.MeshLambertMaterial({ color: 0x111 }));
     eye.position.set(0.18, 1.45, 0.4);
     g.add(body, eye);
-    g.position.set(x, heightAt(x, z), z);
+    g.position.set(x, groundY(x, z, 0.8), z);
     this.scene.add(g);
     this.shopKeep = { mesh: g, x, z };
     this.banner(this.t("المواي فتح دكانه!", "The Moai opened a shop!"));
@@ -2275,13 +2379,13 @@ class Game {
     p.jumpBuf = Math.max(0, p.jumpBuf - dt);
     if (p.jumpBuf > 0) {
       if (p.coyote > 0) {
-        p.vy = 9.8;
+        p.vy = 9.8 * Math.sqrt(this.stats.jumpHeight);
         p.coyote = 0;
         p.jumpBuf = 0;
         p.jumpHeld = true;
         p.grounded = false;
       } else if (p.airJumps > 0) {
-        p.vy = 8.6;
+        p.vy = 8.6 * Math.sqrt(this.stats.jumpHeight);
         p.airJumps -= 1;
         p.jumpBuf = 0;
         p.jumpHeld = true;
@@ -2312,7 +2416,7 @@ class Game {
       p.y = gy;
       p.vy = 0;
       p.grounded = true;
-      p.airJumps = 1;
+      p.airJumps = this.stats.jumps;
       p.airDash = 1;
     } else {
       p.grounded = false;
@@ -2540,6 +2644,7 @@ class Game {
     if (!tome) return;
     const v = (tome.value || 0) * mult;
     if (tome.stat === "projectiles") this.stats.projectiles += Math.round(tome.value || 1);
+    else if (tome.stat === "jumps") this.stats.jumps += Math.round(tome.value || 1);
     else if (tome.stat === "maxHp") {
       this.stats.maxHp += v;
       this.hp += v;
@@ -3562,24 +3667,30 @@ class Game {
     f.x = p.x;
     f.z = p.z;
     f.y = Math.abs(f.y - p.y) > 12 ? p.y : lerp(f.y, p.y, 1 - Math.pow(p.grounded ? 0.0008 : 0.06, dt));
-    const dist = 11.6 + this.stats.area * 0.35;
-    const height = 4.6 + this.camPitch * 8.8;
-    const tx = f.x + Math.sin(this.camYaw) * dist * Math.cos(this.camPitch * 0.2);
-    const tz = f.z + Math.cos(this.camYaw) * dist;
-    let ty = f.y + height;
-    // Keep the camera above hills between it and the player.
-    for (let i = 1; i <= 4; i++) {
-      const t = i / 4;
-      const gh = heightAt(lerp(f.x, tx, t), lerp(f.z, tz, t)) + 0.9 + t * 0.6;
-      if (gh > lerp(f.y + 1.3, ty, t)) ty = f.y + 1.3 + (gh - f.y - 1.3) / t;
+    const pitch = clamp(this.camPitch, CAM_PITCH_MIN, CAM_PITCH_MAX);
+    let dist = (this.camDist || 11.6) + this.stats.area * 0.35;
+    const ax = Math.sin(this.camYaw) * Math.cos(pitch);
+    const az = Math.cos(this.camYaw) * Math.cos(pitch);
+    const ay = Math.sin(pitch);
+    const eyeY = f.y + 1.4;
+    // Pull the camera in front of any hill between it and the player.
+    for (let i = 1; i <= 8; i++) {
+      const d = (i / 8) * dist;
+      if (heightAt(f.x + ax * d, f.z + az * d) + 0.6 > eyeY + ay * d) {
+        dist = Math.max(2.2, d * 0.85);
+        break;
+      }
     }
+    const tx = f.x + ax * dist;
+    const tz = f.z + az * dist;
+    const ty = Math.max(eyeY + ay * dist, heightAt(tx, tz) + 0.6);
     if (this.camY == null || Math.abs(this.camY - ty) > 30) this.camY = ty;
-    this.camY = lerp(this.camY, ty, 1 - Math.pow(ty > this.camY ? 0.0005 : 0.02, dt));
+    this.camY = lerp(this.camY, ty, 1 - Math.pow(0.0002, dt));
     this.shake *= Math.pow(0.004, dt);
     const sx = (Math.random() - 0.5) * this.shake * 2;
     const sy = (Math.random() - 0.5) * this.shake * 2;
     this.camera.position.set(tx + sx, this.camY + sy, tz + sx * 0.3);
-    this.camera.lookAt(f.x, f.y + 1.28, f.z);
+    this.camera.lookAt(f.x, eyeY, f.z);
 
     // Widen the view a touch at speed.
     const fov = 58 + clamp((Math.hypot(p.vx, p.vz) - this.hero.speed) * 0.7, 0, 9);

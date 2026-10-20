@@ -26,6 +26,8 @@ export const ENEMY_MODELS = {
   boss: { file: "Skeleton_Warrior.glb", base: SKEL, height: 2.45 },
 };
 
+const HERO_PROP = /(1H_|2H_|shield|offhand|mug|spellbook|wand|staff|crossbow|knife|throwable|axe|sword)/i;
+
 function localUrl(file) {
   return `./models/${file}`;
 }
@@ -182,7 +184,13 @@ export class ModelKit {
   spawnHero(heroId) {
     const pack = this.cache.get("hero:" + heroId);
     if (!pack) return null;
-    return this._instance(pack, 1);
+    const inst = this._instance(pack, 1);
+    // KayKit heroes ship with every weapon and shield attached; the game gives them their own.
+    inst.model.traverse((n) => {
+      if (!n.isMesh || n.isSkinnedMesh) return;
+      if (HERO_PROP.test(n.name) || HERO_PROP.test(n.parent?.name || "")) n.visible = false;
+    });
+    return inst;
   }
 
   spawnEnemy(kindId, boss) {

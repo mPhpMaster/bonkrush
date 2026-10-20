@@ -275,6 +275,8 @@ export const TOMES = [
   { id: "haste", name: "كتاب الاندفاع", nameEn: "Tome of Dash", icon: "👟", stat: "dash", value: 0.15, desc: "اندفاع أقوى وأسرع إعادة", descEn: "Stronger dash, faster recharge" },
   { id: "armor", name: "كتاب الدرع", nameEn: "Tome of Armor", icon: "🛡", stat: "armor", value: 0.08, desc: "+8% تقليل ضرر", descEn: "+8% damage reduction" },
   { id: "curse", name: "الكتاب الملعون", nameEn: "Cursed Tome", icon: "☠", stat: "curse", value: 1, desc: "+25% ضرر وسرعة أعداء، +22% ضررك", descEn: "+25% enemy speed, +22% your damage" },
+  { id: "jumps", name: "قفزة +1", nameEn: "Jump +1", icon: "🦘", stat: "jumps", value: 1, desc: "قفزة إضافية في الهواء", descEn: "+1 jump in the air" },
+  { id: "jumpHeight", name: "ارتفاع القفزة", nameEn: "Jump Height", icon: "⤴", stat: "jumpHeight", value: 0.2, desc: "+20% ارتفاع كل قفزة", descEn: "+20% height on every jump" },
   { id: "duration", name: "كتاب الزمن", nameEn: "Tome of Duration", icon: "⌛", stat: "duration", value: 0.2, desc: "+20% مدة النبضات والمقذوفات", descEn: "+20% pulse and projectile duration" },
 ];
 
