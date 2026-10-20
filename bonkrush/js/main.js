@@ -24,6 +24,11 @@ const tmp = new THREE.Vector3();
 const tmp2 = new THREE.Vector3();
 
 const $ = (id) => document.getElementById(id);
+// World scale: layout was authored for a radius-48 island; landmarks and props spread with ARENA_RADIUS.
+const WS = ARENA_RADIUS / 48;
+const AREA = WS * WS;
+const RADAR_RANGE = 52;
+const SHADOW_HALF = 44;
 
 function clamp(v, a, b) {
   return Math.max(a, Math.min(b, v));
@@ -202,12 +207,12 @@ function hypot2(x, z) {
   return Math.hypot(x, z);
 }
 
-const POND = { x: 24, z: -6, r: 7.6 };
-const RIDGE = { x: -18, z: 16 };
-const MESA = { x: 20, z: 14 };
-const KNOLL = { x: -8, z: 26 };
-const CRATER = { x: -22, z: -18 };
-const DUNE = { x: 10, z: -26 };
+const POND = { x: 24 * WS, z: -6 * WS, r: 7.6 };
+const RIDGE = { x: -18 * WS, z: 16 * WS };
+const MESA = { x: 20 * WS, z: 14 * WS };
+const KNOLL = { x: -8 * WS, z: 26 * WS };
+const CRATER = { x: -22 * WS, z: -18 * WS };
+const DUNE = { x: 10 * WS, z: -26 * WS };
 
 function heightAt(x, z) {
   const d = Math.hypot(x, z);
@@ -244,8 +249,8 @@ function heightAt(x, z) {
     h += (crater < 3.6 ? -1.55 : 2.05) * Math.pow(ct, 1.1);
   }
 
-  if (d > 38) h += (d - 38) * 0.22;
-  if (d > 44) h -= (d - 44) * 1.15;
+  if (d > ARENA_RADIUS - 10) h += (d - (ARENA_RADIUS - 10)) * 0.22;
+  if (d > ARENA_RADIUS - 4) h -= (d - (ARENA_RADIUS - 4)) * 1.15;
   return h;
 }
 
@@ -268,7 +273,7 @@ function makeIslandGeometry(radius, rings = 40, segs = 80) {
     if (pond < 9) c.setHex(0xc9b07a);
     else if (y > 4.2) c.setHex(0x8a8378);
     else if (y > 2.2) c.setHex(0x5f8a48);
-    else if (d > 40) c.setHex(0xc2a86a);
+    else if (d > ARENA_RADIUS - 8) c.setHex(0xc2a86a);
     else c.setHex(0x4ea35a);
     colors.push(c.r, c.g, c.b);
   };
@@ -531,10 +536,10 @@ class Game {
     sun.shadow.mapSize.set(2048, 2048);
     sun.shadow.camera.near = 6;
     sun.shadow.camera.far = 110;
-    sun.shadow.camera.left = -58;
-    sun.shadow.camera.right = 58;
-    sun.shadow.camera.top = 58;
-    sun.shadow.camera.bottom = -58;
+    sun.shadow.camera.left = -SHADOW_HALF;
+    sun.shadow.camera.right = SHADOW_HALF;
+    sun.shadow.camera.top = SHADOW_HALF;
+    sun.shadow.camera.bottom = -SHADOW_HALF;
     sun.shadow.bias = -0.0007;
     sun.shadow.normalBias = 0.045;
     this.scene.add(sun);
@@ -614,7 +619,7 @@ class Game {
 
     this.clouds = new THREE.Group();
     const cloudMat = new THREE.MeshBasicMaterial({ color: 0xfff8ee, transparent: true, opacity: 0.92, fog: false });
-    for (let i = 0; i < 16; i++) {
+    for (let i = 0; i < Math.round(16 * WS); i++) {
       const puff = new THREE.Group();
       const n = 3 + ((Math.random() * 3) | 0);
       for (let k = 0; k < n; k++) {
@@ -624,14 +629,14 @@ class Game {
         puff.add(s);
       }
       const a = rand(0, TAU);
-      puff.position.set(Math.cos(a) * rand(20, 52), rand(12, 20), Math.sin(a) * rand(20, 52));
+      puff.position.set(Math.cos(a) * rand(20, 52) * WS, rand(12, 20), Math.sin(a) * rand(20, 52) * WS);
       this.clouds.add(puff);
     }
     this.scene.add(this.clouds);
 
     this.waterTex = makeWaterTex();
     const water = new THREE.Mesh(
-      new THREE.CircleGeometry(118, 48),
+      new THREE.CircleGeometry(ARENA_RADIUS + 70, 64),
       new THREE.MeshPhongMaterial({
         map: this.waterTex,
         color: 0x2a86c8,
@@ -647,10 +652,11 @@ class Game {
     this.water = water;
 
     const hillMat = lambert(0x2f5c3a);
-    for (let i = 0; i < 20; i++) {
-      const a = (i / 20) * TAU + rand(-0.08, 0.08);
+    const hillCount = Math.round(20 * WS);
+    for (let i = 0; i < hillCount; i++) {
+      const a = (i / hillCount) * TAU + rand(-0.08, 0.08);
       const hill = new THREE.Mesh(new THREE.ConeGeometry(rand(7, 14), rand(5, 13), 6), hillMat);
-      hill.position.set(Math.cos(a) * rand(78, 96), -1.2, Math.sin(a) * rand(78, 96));
+      hill.position.set(Math.cos(a) * rand(ARENA_RADIUS + 30, ARENA_RADIUS + 48), -1.2, Math.sin(a) * rand(ARENA_RADIUS + 30, ARENA_RADIUS + 48));
       hill.rotation.y = a;
       this.scene.add(hill);
     }
@@ -658,7 +664,7 @@ class Game {
     const grassTex = makeGrassTex();
     grassTex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
     const ground = new THREE.Mesh(
-      makeIslandGeometry(ARENA_RADIUS + 1.2, 48, 88),
+      makeIslandGeometry(ARENA_RADIUS + 1.2, Math.round(48 * WS), Math.round(88 * WS)),
       lambert(0xffffff, { map: grassTex, vertexColors: true })
     );
     ground.receiveShadow = true;
@@ -666,7 +672,7 @@ class Game {
     this.world.add(ground);
 
     const foam = new THREE.Mesh(
-      new THREE.RingGeometry(ARENA_RADIUS + 3.2, ARENA_RADIUS + 6.8, 64),
+      new THREE.RingGeometry(ARENA_RADIUS + 3.2, ARENA_RADIUS + 6.8, Math.round(64 * WS)),
       new THREE.MeshBasicMaterial({ color: 0xe8f4ff, transparent: true, opacity: 0.55 })
     );
     foam.rotation.x = -Math.PI / 2;
@@ -674,7 +680,7 @@ class Game {
     this.world.add(foam);
     this.foam = foam;
 
-    const cliffGeo = new THREE.CylinderGeometry(ARENA_RADIUS + 2.0, ARENA_RADIUS + 6.2, 7.4, 64, 6, true);
+    const cliffGeo = new THREE.CylinderGeometry(ARENA_RADIUS + 2.0, ARENA_RADIUS + 6.2, 7.4, Math.round(64 * WS), 6, true);
     const cpos = cliffGeo.attributes.position;
     for (let i = 0; i < cpos.count; i++) {
       const x = cpos.getX(i);
@@ -692,10 +698,11 @@ class Game {
     this.world.add(cliff);
 
     const dirtMat = lambert(0xd8c48a, { map: makeDirtTex() });
-    addTrail(this.world, [[0, 0], [6, 5], [14, 8], [18, 12], [20, 14]], dirtMat, 2.6);
-    addTrail(this.world, [[0, 0], [8, -3], [16, -5], [22, -6]], dirtMat, 2.3);
-    addTrail(this.world, [[0, 0], [-7, 8], [-14, 13], [-18, 16]], dirtMat, 2.2);
-    addTrail(this.world, [[0, 0], [4, -10], [8, -18], [10, -26]], dirtMat, 2.0);
+    const scalePts = (pts) => pts.map(([x, z]) => [x * WS, z * WS]);
+    addTrail(this.world, scalePts([[0, 0], [6, 5], [14, 8], [18, 12], [20, 14]]), dirtMat, 2.6);
+    addTrail(this.world, scalePts([[0, 0], [8, -3], [16, -5], [22, -6]]), dirtMat, 2.3);
+    addTrail(this.world, scalePts([[0, 0], [-7, 8], [-14, 13], [-18, 16]]), dirtMat, 2.2);
+    addTrail(this.world, scalePts([[0, 0], [4, -10], [8, -18], [10, -26]]), dirtMat, 2.0);
 
     const plaza = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 6.6, 0.28, 10), lambert(0xb9a888));
     plaza.position.y = heightAt(0, 0) + 0.12;
@@ -767,8 +774,8 @@ class Game {
     this.world.add(ruinBit);
     this.obstacles.push({ x: MESA.x, z: MESA.z, r: 1.9 });
 
-    const archX = 4;
-    const archZ = -18;
+    const archX = 4 * WS;
+    const archZ = -18 * WS;
     const archY = heightAt(archX, archZ);
     const pillarGeo = new THREE.BoxGeometry(0.7, 3.2, 0.7);
     const pL = new THREE.Mesh(pillarGeo, stoneMat);
@@ -793,8 +800,8 @@ class Game {
       this.obstacles.push({ x, z, r: 0.65 });
     }
 
-    const lx = -12;
-    const lz = 6;
+    const lx = -12 * WS;
+    const lz = 6 * WS;
     const log = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 4.4, 7), toon(0x6a4428));
     log.rotation.z = Math.PI / 2;
     log.rotation.y = 0.5;
@@ -808,12 +815,12 @@ class Game {
       opacity: 0.72,
       shininess: 60,
     });
-    addTrail(this.world, [[-14, 12], [-6, 8], [4, 4], [14, 0], [22, -4]], streamMat, 0.85);
+    addTrail(this.world, scalePts([[-14, 12], [-6, 8], [4, 4], [14, 0], [22, -4]]), streamMat, 0.85);
 
     for (let i = 0; i < 5; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.55), toon(0x8a6238));
-      const pz = 40 + i * 0.55;
-      plank.position.set(-1 + i * 0.15, heightAt(0, 40) + 0.2, pz);
+      const pz = ARENA_RADIUS - 8 + i * 0.55;
+      plank.position.set(-1 + i * 0.15, heightAt(0, pz) + 0.2, pz);
       plank.rotation.y = 0.08;
       this.world.add(plank);
     }
@@ -847,7 +854,7 @@ class Game {
       this.world.add(tree);
       this.obstacles.push({ x, z, r: 0.85 * extraScale });
     };
-    for (let i = 0; i < 55; i++) {
+    for (let i = 0; i < Math.round(55 * AREA * 0.75); i++) {
       const a = rand(0, TAU);
       const d = rand(9, ARENA_RADIUS - 5);
       plantTree(Math.cos(a) * d, Math.sin(a) * d);
@@ -859,7 +866,7 @@ class Game {
     }
 
     const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
-    for (let i = 0; i < 22; i++) {
+    for (let i = 0; i < Math.round(22 * AREA); i++) {
       const a = rand(0, TAU);
       const d = rand(10, ARENA_RADIUS - 3);
       const x = Math.cos(a) * d;
@@ -878,7 +885,7 @@ class Game {
     const ruinMat = toon(0xb9a27a);
     for (let i = 0; i < 5; i++) {
       const a = (i / 5) * TAU + 0.55;
-      const d = 15;
+      const d = 15 * WS;
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       const y = heightAt(x, z);
@@ -893,7 +900,7 @@ class Game {
 
     const bushMat = toon(0x2e8a3c);
     const bushGeo = new THREE.IcosahedronGeometry(0.52, 0);
-    for (let i = 0; i < 48; i++) {
+    for (let i = 0; i < Math.round(48 * AREA); i++) {
       const a = rand(0, TAU);
       const d = rand(8, ARENA_RADIUS - 5);
       const x = Math.cos(a) * d;
@@ -908,9 +915,9 @@ class Game {
 
     const shroomCap = toon(0xe24b4b);
     const shroomStem = toon(0xf5f0d8);
-    for (let i = 0; i < 28; i++) {
+    for (let i = 0; i < Math.round(28 * AREA * 0.6); i++) {
       const a = rand(0, TAU);
-      const d = rand(6, 40);
+      const d = rand(6, ARENA_RADIUS - 8);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
@@ -926,11 +933,12 @@ class Game {
 
     const tuftGeo = new THREE.ConeGeometry(0.11, 0.4, 4);
     const tuftMat = toon(0x3d9a4a);
-    const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, 380);
+    const tuftMax = Math.round(380 * AREA);
+    const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, tuftMax);
     tufts.castShadow = true;
     const dummy = new THREE.Object3D();
     let placed = 0;
-    for (let i = 0; i < 520 && placed < 380; i++) {
+    for (let i = 0; i < tuftMax * 1.4 && placed < tuftMax; i++) {
       const a = rand(0, TAU);
       const d = rand(3, ARENA_RADIUS - 6);
       const x = Math.cos(a) * d;
@@ -942,6 +950,7 @@ class Game {
       dummy.updateMatrix();
       tufts.setMatrixAt(placed++, dummy.matrix);
     }
+    tufts.count = placed;
     this.world.add(tufts);
 
     const moteGeo = new THREE.SphereGeometry(0.055, 6, 4);
@@ -953,10 +962,12 @@ class Game {
       blending: THREE.AdditiveBlending,
     });
     this.motes = [];
-    for (let i = 0; i < 52; i++) {
+    for (let i = 0; i < Math.round(52 * AREA * 0.6); i++) {
       const m = new THREE.Mesh(moteGeo, moteMat);
-      const ox = rand(-42, 42);
-      const oz = rand(-42, 42);
+      const ma = rand(0, TAU);
+      const md = Math.sqrt(Math.random()) * (ARENA_RADIUS - 6);
+      const ox = Math.cos(ma) * md;
+      const oz = Math.sin(ma) * md;
       const oy = rand(0.45, 3.6) + heightAt(ox, oz);
       m.position.set(ox, oy, oz);
       this.scene.add(m);
@@ -1527,7 +1538,7 @@ class Game {
     const kinds = ["combat", "greed", "magnet", "power", "moai"];
     kinds.forEach((id, i) => {
       const a = (i / kinds.length) * TAU + 0.3;
-      const d = 18;
+      const d = 18 * WS;
       this.spawnShrine(id, Math.cos(a) * d, Math.sin(a) * d);
     });
   }
@@ -2872,12 +2883,20 @@ class Game {
     ctx.beginPath();
     ctx.arc(64, 64, 62, 0, TAU);
     ctx.fill();
-    const scale = 62 / ARENA_RADIUS;
+    const scale = 62 / RADAR_RANGE;
     const px = this.player.x;
     const pz = this.player.z;
     ctx.save();
+    ctx.beginPath();
+    ctx.arc(64, 64, 61, 0, TAU);
+    ctx.clip();
     ctx.translate(64, 64);
     ctx.rotate(this.camYaw);
+    ctx.strokeStyle = "rgba(232,244,255,0.45)";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(-px * scale, -pz * scale, ARENA_RADIUS * scale, 0, TAU);
+    ctx.stroke();
     ctx.fillStyle = "#5ad0ff";
     for (const g of this.gems) {
       ctx.fillRect((g.x - px) * scale - 1, (g.z - pz) * scale - 1, 2, 2);
@@ -2925,6 +2944,16 @@ class Game {
     const sy = (Math.random() - 0.5) * this.shake * 2;
     this.camera.position.set(tx + sx, p.y + height + sy, tz + sx * 0.3);
     this.camera.lookAt(p.x, p.y + 1.28, p.z);
+    this.followSun(p.x, p.z);
+  }
+
+  followSun(x, z) {
+    // Snap to shadow texels so the moving frustum does not make shadows shimmer.
+    const step = (SHADOW_HALF * 2) / this.sun.shadow.mapSize.x;
+    const sx = Math.round(x / step) * step;
+    const sz = Math.round(z / step) * step;
+    this.sun.position.set(sx + 28, 38, sz + 16);
+    this.sun.target.position.set(sx, 0, sz);
   }
 
   endRun(won) {
