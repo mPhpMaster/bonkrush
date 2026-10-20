@@ -22,14 +22,15 @@ Opens http://localhost:4173
 
 - **WASD** move (camera-relative)
 - **Mouse** look (click the game to lock the pointer)
-- **Shift** dash
-- **Space** jump
-- **F** / **right-click** hold to charge a smash (release near full for Precision)
+- **Shift** dash (also once in the air)
+- **Space** jump; tap for a short hop, hold for full height, press again in the air to double jump
+- **Left-click** / **F** hold to charge your hero's special (release near full for Precision): Rook BONK cone, Grom QUAKE ring, Vex NOVA bolt ring, Nyla SHADOW STEP dash, Kett COIN SHOT fan
+- **Mouse wheel** zoom the camera; move the mouse up or down to raise or lower it
+- **Tab** hold to show the full island map
 - **E** activate a shrine or the Moai shop
 - **1 / 2 / 3** pick a level-up card
 - **R** reroll cards (costs gold)
 - **X** skip the level-up and heal
-- **Right-click a card** banish it from the pool
 - **Esc** pause (shows your current build)
 
 ## Loop
