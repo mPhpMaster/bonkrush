@@ -27,7 +27,9 @@ const $ = (id) => document.getElementById(id);
 // World scale: layout was authored for a radius-48 island; landmarks and props spread with ARENA_RADIUS.
 const WS = ARENA_RADIUS / 48;
 const AREA = WS * WS;
-const RADAR_RANGE = 52;
+const RADAR_RANGE = 64;
+const OBST_CELL = 8;
+const MOTE_BOX = 64;
 const SHADOW_HALF = 44;
 
 function clamp(v, a, b) {
@@ -188,6 +190,16 @@ function toon(color, extra = {}) {
 function lambert(color, extra = {}) {
   return new THREE.MeshLambertMaterial({ color, ...extra });
 }
+function makeInstanced(geo, mat, matrices, cast = true, receive = false) {
+  const mesh = new THREE.InstancedMesh(geo, mat, Math.max(1, matrices.length));
+  matrices.forEach((m, i) => mesh.setMatrixAt(i, m));
+  mesh.count = matrices.length;
+  mesh.castShadow = cast;
+  mesh.receiveShadow = receive;
+  mesh.computeBoundingSphere();
+  return mesh;
+}
+
 function setShadow(obj, cast = true, receive = false) {
   obj.traverse((n) => {
     if (!n.isMesh) return;
@@ -619,7 +631,7 @@ class Game {
 
     this.clouds = new THREE.Group();
     const cloudMat = new THREE.MeshBasicMaterial({ color: 0xfff8ee, transparent: true, opacity: 0.92, fog: false });
-    for (let i = 0; i < Math.round(16 * WS); i++) {
+    for (let i = 0; i < Math.min(32, Math.round(16 * WS)); i++) {
       const puff = new THREE.Group();
       const n = 3 + ((Math.random() * 3) | 0);
       for (let k = 0; k < n; k++) {
@@ -819,7 +831,7 @@ class Game {
 
     for (let i = 0; i < 5; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.55), toon(0x8a6238));
-      const pz = ARENA_RADIUS - 8 + i * 0.55;
+      const pz = 40 * WS + i * 0.55;
       plank.position.set(-1 + i * 0.15, heightAt(0, pz) + 0.2, pz);
       plank.rotation.y = 0.08;
       this.world.add(plank);
@@ -829,29 +841,25 @@ class Game {
     const leafGeo = new THREE.IcosahedronGeometry(1.08, 0);
     const trunkMat = toon(0x6a4428);
     const leafMats = [0x2f9a44, 0x247a3a, 0x48b85a, 0x1f6b32].map((c) => toon(c));
+    // Props are instanced: the large island holds hundreds of each, one draw call per material.
+    const dummy = new THREE.Object3D();
+    const place = (list, x, y, z, sx, sy = sx, sz = sx, rx = 0, ry = 0, rz = 0) => {
+      dummy.position.set(x, y, z);
+      dummy.rotation.set(rx, ry, rz);
+      dummy.scale.set(sx, sy, sz);
+      dummy.updateMatrix();
+      list.push(dummy.matrix.clone());
+    };
+    const trunkM = [];
+    const leafM = leafMats.map(() => []);
     const plantTree = (x, z, extraScale = 1) => {
       if (inPond(x, z) || Math.hypot(x, z) < 8) return;
       const y = heightAt(x, z);
-      const tree = new THREE.Group();
-      const trunk = new THREE.Mesh(trunkGeo, trunkMat);
-      trunk.position.y = 1.1;
-      tree.add(trunk);
-      const leafMat = pick(leafMats);
-      const canopy = new THREE.Mesh(leafGeo, leafMat);
-      canopy.position.y = 2.45;
-      canopy.scale.setScalar(rand(1.0, 1.4) * extraScale);
-      tree.add(canopy);
-      const canopy2 = new THREE.Mesh(leafGeo, leafMat);
-      canopy2.position.set(rand(-0.5, 0.5), 2.85, rand(-0.4, 0.4));
-      canopy2.scale.setScalar(rand(0.58, 0.9) * extraScale);
-      tree.add(canopy2);
-      const canopy3 = new THREE.Mesh(leafGeo, pick(leafMats));
-      canopy3.position.set(rand(-0.35, 0.35), 2.15, rand(-0.35, 0.35));
-      canopy3.scale.setScalar(rand(0.45, 0.7) * extraScale);
-      tree.add(canopy3);
-      tree.position.set(x, y, z);
-      setShadow(tree, true, true);
-      this.world.add(tree);
+      place(trunkM, x, y + 1.1, z, 1);
+      const li = (Math.random() * leafMats.length) | 0;
+      place(leafM[li], x, y + 2.45, z, rand(1.0, 1.4) * extraScale);
+      place(leafM[li], x + rand(-0.5, 0.5), y + 2.85, z + rand(-0.4, 0.4), rand(0.58, 0.9) * extraScale);
+      place(leafM[(Math.random() * leafMats.length) | 0], x + rand(-0.35, 0.35), y + 2.15, z + rand(-0.35, 0.35), rand(0.45, 0.7) * extraScale);
       this.obstacles.push({ x, z, r: 0.85 * extraScale });
     };
     for (let i = 0; i < Math.round(55 * AREA * 0.75); i++) {
@@ -864,23 +872,22 @@ class Game {
       const d = rand(0, 7);
       plantTree(KNOLL.x + Math.cos(a) * d, KNOLL.z + Math.sin(a) * d, 1.15);
     }
+    this.world.add(makeInstanced(trunkGeo, trunkMat, trunkM, true, true));
+    leafMats.forEach((m, i) => this.world.add(makeInstanced(leafGeo, m, leafM[i], true, true)));
 
     const rockGeo = new THREE.DodecahedronGeometry(0.7, 0);
+    const rockM = [];
     for (let i = 0; i < Math.round(22 * AREA); i++) {
       const a = rand(0, TAU);
       const d = rand(10, ARENA_RADIUS - 3);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
-      const rock = new THREE.Mesh(rockGeo, stoneMat);
-      rock.position.set(x, heightAt(x, z) + 0.28, z);
-      rock.rotation.set(rand(0, 1), rand(0, TAU), rand(0, 1));
-      rock.scale.set(rand(0.6, 1.45), rand(0.45, 1.1), rand(0.6, 1.45));
-      rock.castShadow = true;
-      rock.receiveShadow = true;
-      this.world.add(rock);
-      this.obstacles.push({ x, z, r: 0.7 * rock.scale.x });
+      const sx = rand(0.6, 1.45);
+      place(rockM, x, heightAt(x, z) + 0.28, z, sx, rand(0.45, 1.1), rand(0.6, 1.45), rand(0, 1), rand(0, TAU), rand(0, 1));
+      this.obstacles.push({ x, z, r: 0.7 * sx });
     }
+    this.world.add(makeInstanced(rockGeo, stoneMat, rockM, true, true));
 
     const ruinMat = toon(0xb9a27a);
     for (let i = 0; i < 5; i++) {
@@ -900,43 +907,39 @@ class Game {
 
     const bushMat = toon(0x2e8a3c);
     const bushGeo = new THREE.IcosahedronGeometry(0.52, 0);
+    const bushM = [];
     for (let i = 0; i < Math.round(48 * AREA); i++) {
       const a = rand(0, TAU);
       const d = rand(8, ARENA_RADIUS - 5);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
-      const bush = new THREE.Mesh(bushGeo, bushMat);
-      bush.position.set(x, heightAt(x, z) + 0.32, z);
-      bush.scale.set(rand(0.8, 1.5), rand(0.5, 0.95), rand(0.8, 1.5));
-      bush.castShadow = true;
-      this.world.add(bush);
+      place(bushM, x, heightAt(x, z) + 0.32, z, rand(0.8, 1.5), rand(0.5, 0.95), rand(0.8, 1.5));
     }
+    this.world.add(makeInstanced(bushGeo, bushMat, bushM, true, false));
 
     const shroomCap = toon(0xe24b4b);
     const shroomStem = toon(0xf5f0d8);
-    for (let i = 0; i < Math.round(28 * AREA * 0.6); i++) {
+    const stemM = [];
+    const capM = [];
+    for (let i = 0; i < Math.round(28 * AREA * 0.75); i++) {
       const a = rand(0, TAU);
       const d = rand(6, ARENA_RADIUS - 8);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
-      const g = new THREE.Group();
-      const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.08, 0.1, 0.4, 6), shroomStem);
-      stem.position.y = 0.2;
-      const cap = new THREE.Mesh(new THREE.SphereGeometry(0.24, 8, 6, 0, TAU, 0, 1.4), shroomCap);
-      cap.position.y = 0.44;
-      g.add(stem, cap);
-      g.position.set(x, heightAt(x, z), z);
-      this.world.add(g);
+      const y = heightAt(x, z);
+      place(stemM, x, y + 0.2, z, 1);
+      place(capM, x, y + 0.44, z, 1);
     }
+    this.world.add(makeInstanced(new THREE.CylinderGeometry(0.08, 0.1, 0.4, 6), shroomStem, stemM, false, false));
+    this.world.add(makeInstanced(new THREE.SphereGeometry(0.24, 8, 6, 0, TAU, 0, 1.4), shroomCap, capM, false, false));
 
     const tuftGeo = new THREE.ConeGeometry(0.11, 0.4, 4);
     const tuftMat = toon(0x3d9a4a);
     const tuftMax = Math.round(380 * AREA);
     const tufts = new THREE.InstancedMesh(tuftGeo, tuftMat, tuftMax);
     tufts.castShadow = true;
-    const dummy = new THREE.Object3D();
     let placed = 0;
     for (let i = 0; i < tuftMax * 1.4 && placed < tuftMax; i++) {
       const a = rand(0, TAU);
@@ -951,6 +954,7 @@ class Game {
       tufts.setMatrixAt(placed++, dummy.matrix);
     }
     tufts.count = placed;
+    tufts.computeBoundingSphere();
     this.world.add(tufts);
 
     const moteGeo = new THREE.SphereGeometry(0.055, 6, 4);
@@ -962,14 +966,12 @@ class Game {
       blending: THREE.AdditiveBlending,
     });
     this.motes = [];
-    for (let i = 0; i < Math.round(52 * AREA * 0.6); i++) {
+    for (let i = 0; i < 60; i++) {
       const m = new THREE.Mesh(moteGeo, moteMat);
-      const ma = rand(0, TAU);
-      const md = Math.sqrt(Math.random()) * (ARENA_RADIUS - 6);
-      const ox = Math.cos(ma) * md;
-      const oz = Math.sin(ma) * md;
-      const oy = rand(0.45, 3.6) + heightAt(ox, oz);
-      m.position.set(ox, oy, oz);
+      const ox = rand(-MOTE_BOX / 2, MOTE_BOX / 2);
+      const oz = rand(-MOTE_BOX / 2, MOTE_BOX / 2);
+      const oy = rand(0.45, 3.6);
+      m.position.set(ox, oy + heightAt(ox, oz), oz);
       this.scene.add(m);
       this.motes.push({ mesh: m, ox, oy, oz, ph: rand(0, TAU) });
     }
@@ -1710,8 +1712,33 @@ class Game {
     }
   }
 
-  resolvePos(x, z, r) {
+  buildObstacleGrid() {
+    // Bucket obstacles by cell (padded by the largest entity radius) so lookups stay local.
+    const grid = new Map();
+    const pad = 2.5;
     for (const o of this.obstacles) {
+      const reach = o.r + pad;
+      const x0 = Math.floor((o.x - reach) / OBST_CELL);
+      const x1 = Math.floor((o.x + reach) / OBST_CELL);
+      const z0 = Math.floor((o.z - reach) / OBST_CELL);
+      const z1 = Math.floor((o.z + reach) / OBST_CELL);
+      for (let gx = x0; gx <= x1; gx++) {
+        for (let gz = z0; gz <= z1; gz++) {
+          const k = gx * 4096 + gz;
+          let cell = grid.get(k);
+          if (!cell) grid.set(k, (cell = []));
+          cell.push(o);
+        }
+      }
+    }
+    this.obstacleGrid = grid;
+    this.obstacleGridSize = this.obstacles.length;
+  }
+
+  resolvePos(x, z, r) {
+    if (!this.obstacleGrid || this.obstacleGridSize !== this.obstacles.length) this.buildObstacleGrid();
+    const cell = this.obstacleGrid.get(Math.floor(x / OBST_CELL) * 4096 + Math.floor(z / OBST_CELL)) || [];
+    for (const o of cell) {
       const dx = x - o.x;
       const dz = z - o.z;
       const d = Math.hypot(dx, dz);
@@ -2907,16 +2934,26 @@ class Game {
       const sz = e.boss ? 5 : 2;
       ctx.fillRect((e.x - px) * scale - sz / 2, (e.z - pz) * scale - sz / 2, sz, sz);
     }
+    const pin = (x, z, size) => {
+      let dx = (x - px) * scale;
+      let dz = (z - pz) * scale;
+      const l = Math.hypot(dx, dz);
+      if (l > 57) {
+        dx *= 57 / l;
+        dz *= 57 / l;
+      }
+      ctx.fillRect(dx - size / 2, dz - size / 2, size, size);
+    };
     ctx.fillStyle = "#f0c14a";
-    for (const c of this.chests) ctx.fillRect((c.x - px) * scale - 2, (c.z - pz) * scale - 2, 4, 4);
+    for (const c of this.chests) if (!c.open) pin(c.x, c.z, 4);
     ctx.fillStyle = "#c45ee0";
     for (const s of this.shrines) {
       if (s.used) continue;
-      ctx.fillRect((s.x - px) * scale - 2, (s.z - pz) * scale - 2, 4, 4);
+      pin(s.x, s.z, 4);
     }
     if (this.shopKeep) {
       ctx.fillStyle = "#7ad0ff";
-      ctx.fillRect((this.shopKeep.x - px) * scale - 3, (this.shopKeep.z - pz) * scale - 3, 6, 6);
+      pin(this.shopKeep.x, this.shopKeep.z, 6);
     }
     ctx.fillStyle = "#fff";
     ctx.beginPath();
@@ -3025,7 +3062,7 @@ class Game {
     } else if (this.mode === "menu") {
       this.camYaw += dt * 0.06;
       this.camera.position.set(Math.sin(this.camYaw) * 46, 26, Math.cos(this.camYaw) * 46);
-      this.camera.lookAt(RIDGE.x * 0.35, 3.4, RIDGE.z * 0.35);
+      this.camera.lookAt((RIDGE.x / WS) * 0.35, 3.4, (RIDGE.z / WS) * 0.35);
     } else if (this.playerMesh && (this.mode === "paused" || this.choosing || this.mode === "dead" || this.mode === "win")) {
       this.updateCamera(dt);
       this.updateFx(dt);
@@ -3038,10 +3075,13 @@ class Game {
     }
     if (this.foam) this.foam.material.opacity = 0.42 + Math.sin(t * 1.4) * 0.12;
     if (this.motes) {
+      const cx = this.player?.x || 0;
+      const cz = this.player?.z || 0;
+      const wrap = (v, c) => c + ((((v - c) % MOTE_BOX) + MOTE_BOX * 1.5) % MOTE_BOX) - MOTE_BOX / 2;
       for (const m of this.motes) {
-        m.mesh.position.x = m.ox + Math.sin(t * 0.55 + m.ph) * 1.5;
-        m.mesh.position.y = m.oy + Math.sin(t * 1.15 + m.ph) * 0.45;
-        m.mesh.position.z = m.oz + Math.cos(t * 0.48 + m.ph) * 1.5;
+        const x = wrap(m.ox, cx) + Math.sin(t * 0.55 + m.ph) * 1.5;
+        const z = wrap(m.oz, cz) + Math.cos(t * 0.48 + m.ph) * 1.5;
+        m.mesh.position.set(x, heightAt(x, z) + m.oy + Math.sin(t * 1.15 + m.ph) * 0.45, z);
       }
     }
     if (this.godRays) {

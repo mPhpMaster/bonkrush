@@ -1,4 +1,4 @@
-export const ARENA_RADIUS = 90;
+export const ARENA_RADIUS = 180;
 export const SURVIVE_SECONDS = 8 * 60;
 
 export const CHARACTERS = [
