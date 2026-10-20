@@ -9,6 +9,7 @@ import {
   WEAPONS,
   TOMES,
   ENEMY_KINDS,
+  ENEMY_SPEED_SCALE,
   BOSSES,
   RARITY,
   RARITY_MULT,
@@ -226,6 +227,24 @@ const KNOLL = { x: -8 * WS, z: 26 * WS };
 const CRATER = { x: -22 * WS, z: -18 * WS };
 const DUNE = { x: 10 * WS, z: -26 * WS };
 
+// Random hills, plateaus and hollows, rolled once per page load and kept clear of the plaza and pond.
+const TERRAIN_FEATURES = (() => {
+  const list = [];
+  const want = Math.round(ARENA_RADIUS * ARENA_RADIUS * 0.0014);
+  for (let t = 0; t < want * 30 && list.length < want; t++) {
+    const a = rand(0, TAU);
+    const d = Math.sqrt(Math.random()) * (ARENA_RADIUS - 20);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    if (d < 18 || Math.hypot(x - POND.x, z - POND.z) < 22) continue;
+    const up = Math.random() < 0.62;
+    const r = up ? rand(7, 20) : rand(6, 15);
+    if (list.some((f) => Math.hypot(f.x - x, f.z - z) < (f.r + r) * 0.65)) continue;
+    list.push({ x, z, r, h: up ? rand(2.5, 9) : -rand(1.4, 3.2), mesa: up && Math.random() < 0.3 });
+  }
+  return list;
+})();
+
 function heightAt(x, z) {
   const d = Math.hypot(x, z);
   let h =
@@ -234,10 +253,10 @@ function heightAt(x, z) {
     Math.sin(x * 0.27 + z * 0.24) * 0.42 +
     Math.sin(x * 0.51) * Math.sin(z * 0.47) * 0.22;
 
-  const plaza = clamp(1 - d / 7.5, 0, 1);
+  // Fully flat under the plaza disc so the player stands on it, blending out by d = 9.5.
+  const plaza = clamp((9.5 - d) / 3, 0, 1);
   const plazaS = plaza * plaza * (3 - 2 * plaza);
-  h *= 1 - plazaS * 0.62;
-  h += plazaS * 0.12;
+  h = lerp(h, 0.12, plazaS);
 
   const ridge = Math.hypot(x - RIDGE.x, z - RIDGE.z);
   h += Math.pow(Math.max(0, 1 - ridge / 16.5), 1.85) * 7.4;
@@ -259,6 +278,18 @@ function heightAt(x, z) {
   if (crater < 7.4) {
     const ct = 1 - crater / 7.4;
     h += (crater < 3.6 ? -1.55 : 2.05) * Math.pow(ct, 1.1);
+  }
+
+  for (const f of TERRAIN_FEATURES) {
+    const fx = x - f.x;
+    const fz = z - f.z;
+    if (fx > f.r || fx < -f.r || fz > f.r || fz < -f.r) continue;
+    let t = 1 - Math.hypot(fx, fz) / f.r;
+    if (t <= 0) continue;
+    if (f.mesa) t = Math.min(1, t * 1.8);
+    const s = t * t * (3 - 2 * t) * f.h;
+    // Hollows stop above sea level so they never flood with ocean water.
+    h = f.h > 0 ? h + s : Math.max(h + s, Math.min(h, -1.5));
   }
 
   if (d > ARENA_RADIUS - 10) h += (d - (ARENA_RADIUS - 10)) * 0.22;
@@ -320,23 +351,65 @@ function makeIslandGeometry(radius, rings = 40, segs = 80) {
   return geo;
 }
 
-function addTrail(world, pts, mat, width) {
+// A ribbon that follows the terrain, so walkers stand on it instead of sinking into a flat slab.
+function addTrail(world, pts, mat, width, lift = 0.04) {
+  const samples = [];
   for (let i = 0; i < pts.length - 1; i++) {
-    const ax = pts[i][0];
-    const az = pts[i][1];
-    const bx = pts[i + 1][0];
-    const bz = pts[i + 1][1];
-    const mx = (ax + bx) * 0.5;
-    const mz = (az + bz) * 0.5;
-    const dx = bx - ax;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dz);
-    const plank = new THREE.Mesh(new THREE.BoxGeometry(width, 0.08, len + 0.35), mat);
-    plank.position.set(mx, heightAt(mx, mz) + 0.04, mz);
-    plank.rotation.y = Math.atan2(dx, dz);
-    plank.receiveShadow = true;
-    world.add(plank);
+    const [ax, az] = pts[i];
+    const [bx, bz] = pts[i + 1];
+    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az) / 0.9));
+    for (let s = 0; s < steps; s++) samples.push([lerp(ax, bx, s / steps), lerp(az, bz, s / steps)]);
   }
+  samples.push(pts[pts.length - 1]);
+  const keep = samples.filter(([x, z]) => Math.hypot(x, z) > 6.2);
+  if (keep.length < 2) return;
+  const positions = [];
+  const uvs = [];
+  const indices = [];
+  let along = 0;
+  for (let k = 0; k < keep.length; k++) {
+    const prev = keep[Math.max(0, k - 1)];
+    const next = keep[Math.min(keep.length - 1, k + 1)];
+    let dx = next[0] - prev[0];
+    let dz = next[1] - prev[1];
+    const l = Math.hypot(dx, dz) || 1;
+    dx /= l;
+    dz /= l;
+    if (k > 0) along += Math.hypot(keep[k][0] - keep[k - 1][0], keep[k][1] - keep[k - 1][1]);
+    for (const side of [-0.5, 0.5]) {
+      const vx = keep[k][0] - dz * width * side;
+      const vz = keep[k][1] + dx * width * side;
+      positions.push(vx, heightAt(vx, vz) + lift, vz);
+      uvs.push((side + 0.5) * width * 0.25, along * 0.25);
+    }
+    if (k > 0) {
+      const a = (k - 1) * 2;
+      indices.push(a, a + 1, a + 2, a + 1, a + 3, a + 2);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
+  geo.computeVertexNormals();
+  const ribbon = new THREE.Mesh(geo, mat);
+  ribbon.receiveShadow = true;
+  world.add(ribbon);
+}
+
+// Random spots spread at least minGap apart, on dry ground, away from the plaza.
+function scatterSpots(n, minGap, minCenter, taken = []) {
+  const out = [];
+  for (let t = 0; t < n * 40 && out.length < n; t++) {
+    const a = rand(0, TAU);
+    const d = Math.sqrt(Math.random()) * (ARENA_RADIUS - 10);
+    const x = Math.cos(a) * d;
+    const z = Math.sin(a) * d;
+    if (d < minCenter || inPond(x, z) || heightAt(x, z) < -1.2) continue;
+    if (out.concat(taken).some(([ox, oz]) => Math.hypot(ox - x, oz - z) < minGap)) continue;
+    out.push([x, z]);
+  }
+  return out;
 }
 function nowSave() {
   try {
@@ -717,13 +790,13 @@ class Game {
     addTrail(this.world, scalePts([[0, 0], [4, -10], [8, -18], [10, -26]]), dirtMat, 2.0);
 
     const plaza = new THREE.Mesh(new THREE.CylinderGeometry(6.2, 6.6, 0.28, 10), lambert(0xb9a888));
-    plaza.position.y = heightAt(0, 0) + 0.12;
+    plaza.position.y = heightAt(0, 0) - 0.11;
     plaza.receiveShadow = true;
     plaza.castShadow = true;
     this.world.add(plaza);
     const plazaRing = new THREE.Mesh(new THREE.TorusGeometry(5.4, 0.12, 6, 24), toon(0x8a7a5a));
     plazaRing.rotation.x = Math.PI / 2;
-    plazaRing.position.y = heightAt(0, 0) + 0.28;
+    plazaRing.position.y = heightAt(0, 0) + 0.05;
     this.world.add(plazaRing);
 
     const pondWater = new THREE.Mesh(
@@ -827,7 +900,7 @@ class Game {
       opacity: 0.72,
       shininess: 60,
     });
-    addTrail(this.world, scalePts([[-14, 12], [-6, 8], [4, 4], [14, 0], [22, -4]]), streamMat, 0.85);
+    addTrail(this.world, scalePts([[-14, 12], [-6, 8], [4, 4], [14, 0], [22, -4]]), streamMat, 0.85, 0.07);
 
     for (let i = 0; i < 5; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.55), toon(0x8a6238));
@@ -862,15 +935,25 @@ class Game {
       place(leafM[(Math.random() * leafMats.length) | 0], x + rand(-0.35, 0.35), y + 2.15, z + rand(-0.35, 0.35), rand(0.45, 0.7) * extraScale);
       this.obstacles.push({ x, z, r: 0.85 * extraScale });
     };
-    for (let i = 0; i < Math.round(55 * AREA * 0.75); i++) {
+    for (let i = 0; i < Math.round(55 * AREA); i++) {
       const a = rand(0, TAU);
-      const d = rand(9, ARENA_RADIUS - 5);
+      const d = Math.max(9, Math.sqrt(Math.random()) * (ARENA_RADIUS - 5));
       plantTree(Math.cos(a) * d, Math.sin(a) * d);
     }
     for (let i = 0; i < 22; i++) {
       const a = rand(0, TAU);
       const d = rand(0, 7);
       plantTree(KNOLL.x + Math.cos(a) * d, KNOLL.z + Math.sin(a) * d, 1.15);
+    }
+    // Forest groves scattered over the island.
+    for (const [gx, gz] of scatterSpots(Math.round(ARENA_RADIUS * 0.16), 24, 20)) {
+      const gr = rand(5, 12);
+      const n = 8 + ((Math.random() * 16) | 0);
+      for (let i = 0; i < n; i++) {
+        const a = rand(0, TAU);
+        const d = Math.sqrt(Math.random()) * gr;
+        plantTree(gx + Math.cos(a) * d, gz + Math.sin(a) * d, rand(0.9, 1.25));
+      }
     }
     this.world.add(makeInstanced(trunkGeo, trunkMat, trunkM, true, true));
     leafMats.forEach((m, i) => this.world.add(makeInstanced(leafGeo, m, leafM[i], true, true)));
@@ -943,7 +1026,7 @@ class Game {
     let placed = 0;
     for (let i = 0; i < tuftMax * 1.4 && placed < tuftMax; i++) {
       const a = rand(0, TAU);
-      const d = rand(3, ARENA_RADIUS - 6);
+      const d = rand(7.2, ARENA_RADIUS - 6);
       const x = Math.cos(a) * d;
       const z = Math.sin(a) * d;
       if (inPond(x, z)) continue;
@@ -1328,6 +1411,7 @@ class Game {
     this.buildSlashMesh();
     this.buildAuraMesh();
     this.spawnWorldShrines();
+    this.spawnWorldChests();
     for (let i = 0; i < 12; i++) this.spawnEnemy(i < 4 ? "runner" : "grunt");
 
     this.els.menu.classList.remove("show");
@@ -1543,6 +1627,13 @@ class Game {
       const d = 18 * WS;
       this.spawnShrine(id, Math.cos(a) * d, Math.sin(a) * d);
     });
+    const taken = this.shrines.map((s) => [s.x, s.z]);
+    for (const [x, z] of scatterSpots(Math.round(ARENA_RADIUS / 12), 26, 20, taken)) this.spawnShrine(pick(kinds), x, z);
+  }
+
+  spawnWorldChests() {
+    const taken = this.shrines.map((s) => [s.x, s.z]);
+    for (const [x, z] of scatterSpots(Math.round(ARENA_RADIUS / 8), 18, 14, taken)) this.placeChest(x, z);
   }
 
   spawnShrine(id, x, z) {
@@ -2482,6 +2573,11 @@ class Game {
     const d = rand(10, 28);
     const x = this.player.x + Math.cos(a) * d;
     const z = this.player.z + Math.sin(a) * d;
+    this.placeChest(x, z);
+    this.banner(this.t("صندوق ظهر!", "A chest appeared!"));
+  }
+
+  placeChest(x, z) {
     const [cx, cz] = this.resolvePos(x, z, 0.6);
     const mesh = new THREE.Mesh(
       new THREE.BoxGeometry(0.8, 0.55, 0.6),
@@ -2490,7 +2586,6 @@ class Game {
     mesh.position.set(cx, heightAt(cx, cz) + 0.3, cz);
     this.scene.add(mesh);
     this.chests.push({ mesh, x: cx, z: cz, open: false });
-    this.banner(this.t("صندوق ظهر!", "A chest appeared!"));
   }
 
   initFxPool() {
@@ -2584,7 +2679,7 @@ class Game {
     e.y = heightAt(x, z);
     e.hp = kind.hp * (bossDef ? 1 + this.time / 280 : scaleHp);
     e.maxHp = e.hp;
-    e.speed = kind.speed * (0.92 + Math.random() * 0.16);
+    e.speed = kind.speed * ENEMY_SPEED_SCALE * (0.92 + Math.random() * 0.16);
     e.dmg = kind.dmg * (bossDef ? 1 : scaleDmg);
     e.radius = kind.radius;
     e.xp = kind.xp;
@@ -2938,6 +3033,7 @@ class Game {
       let dx = (x - px) * scale;
       let dz = (z - pz) * scale;
       const l = Math.hypot(dx, dz);
+      if (l > 57 * 2.5) return;
       if (l > 57) {
         dx *= 57 / l;
         dz *= 57 / l;

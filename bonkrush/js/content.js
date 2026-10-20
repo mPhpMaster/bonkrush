@@ -295,6 +295,9 @@ export const QUESTS = [
   { id: "boss", label: "اهزم زعيماً", labelEn: "Defeat a boss" },
 ];
 
+// Global multiplier on enemy move speed (1 = original pace).
+export const ENEMY_SPEED_SCALE = 0.5;
+
 export const ENEMY_KINDS = {
   grunt: { name: "وحل", hp: 28, speed: 4.35, dmg: 8, radius: 0.55, color: 0x6bcf6b, xp: 3, gold: 0.12, scale: 1 },
   runner: { name: "عدّاء", hp: 18, speed: 7.7, dmg: 7, radius: 0.42, color: 0xf0c14a, xp: 5, gold: 0.08, scale: 0.86 },
