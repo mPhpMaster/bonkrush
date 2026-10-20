@@ -24,12 +24,11 @@ Opens http://localhost:4173
 - **Mouse** look (click the game to lock the pointer)
 - **Shift** dash (also once in the air)
 - **Space** jump; tap for a short hop, hold for full height, press again in the air to double jump
-- **F** / **right-click** hold to charge a smash (release near full for Precision)
+- **F** hold to charge a smash (release near full for Precision)
 - **E** activate a shrine or the Moai shop
 - **1 / 2 / 3** pick a level-up card
 - **R** reroll cards (costs gold)
 - **X** skip the level-up and heal
-- **Right-click a card** banish it from the pool
 - **Esc** pause (shows your current build)
 
 ## Loop

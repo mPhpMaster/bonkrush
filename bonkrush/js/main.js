@@ -655,7 +655,6 @@ class Game {
     this.clock = new THREE.Clock();
     this.shake = 0;
     this.hitstop = 0;
-    this.mouseRight = false;
     this.charging = false;
     this.charge = 0;
     this.bindDom();
@@ -777,14 +776,16 @@ class Game {
     view.addEventListener("click", () => {
       if (this.mode === "run" && !this.choosing && !this.shopping) view.requestPointerLock();
     });
-    // Right-click never opens the browser menu or acts on overlays.
-    document.addEventListener("contextmenu", (e) => e.preventDefault());
-    view.addEventListener("mousedown", (e) => {
-      if (e.button === 2) this.mouseRight = true;
-    });
-    window.addEventListener("mouseup", (e) => {
-      if (e.button === 2) this.mouseRight = false;
-    });
+    // Right-click does nothing anywhere: no browser menu, no game action.
+    const blockRight = (e) => {
+      if (e.button === 2 || e.type === "contextmenu") {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    };
+    for (const type of ["contextmenu", "mousedown", "mouseup", "auxclick", "pointerdown", "pointerup"]) {
+      window.addEventListener(type, blockRight, true);
+    }
     document.addEventListener("pointerlockchange", () => {
       this.pointer.locked = document.pointerLockElement === view;
     });
@@ -1539,11 +1540,11 @@ class Game {
     $("btn-lang").textContent = this.lang === "ar" ? "EN" : "عربي";
     $("how-text").innerHTML = this.t(
       `<p>حرّك بـ <b>WASD</b> • الكاميرا بالماوس • <b>Shift</b> اندفاع • <b>مسافة</b> قفز</p>
-       <p>أسلحتك تضرب وحدها. اضغط <b>F</b> أو زر الفأرة الأيمن لشحن ضربة قوية.</p>
+       <p>أسلحتك تضرب وحدها. اضغط مطولاً على <b>F</b> لشحن ضربة قوية.</p>
        <p>قرب المزارات والصناديق واضغط <b>E</b>. عند الترقية: <b>R</b> إعادة سحب (ذهب) • <b>X</b> تخطي بشفاء.</p>
        <p>عِش <b>8 دقائق</b>. الوحوش تكبر، وأنت أيضاً.</p>`,
       `<p>Move with <b>WASD</b> • Mouse look • <b>Shift</b> dash • <b>Space</b> jump</p>
-       <p>Weapons attack on their own. Hold <b>F</b> or right-click to charge a smash.</p>
+       <p>Weapons attack on their own. Hold <b>F</b> to charge a smash.</p>
        <p>Walk up to shrines and press <b>E</b>. On level-up: <b>R</b> reroll (gold) • <b>X</b> skip+heal.</p>
        <p>Survive <b>8 minutes</b>. The horde scales. So do you.</p>`
     );
@@ -1883,7 +1884,7 @@ class Game {
   }
 
   updateCharge(dt) {
-    const hold = this.keys.has("KeyF") || this.mouseRight;
+    const hold = this.keys.has("KeyF");
     const rate = 1.45 * (this.hero.chargeRate || 1);
     if (hold) {
       this.charging = true;
