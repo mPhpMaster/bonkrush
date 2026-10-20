@@ -220,15 +220,32 @@ function hypot2(x, z) {
   return Math.hypot(x, z);
 }
 
-const POND = { x: 24 * WS, z: -6 * WS, r: 7.6 };
-const RIDGE = { x: -18 * WS, z: 16 * WS };
-const MESA = { x: 20 * WS, z: 14 * WS };
-const KNOLL = { x: -8 * WS, z: 26 * WS };
-const CRATER = { x: -22 * WS, z: -18 * WS };
-const DUNE = { x: 10 * WS, z: -26 * WS };
+const POND = { x: 0, z: 0, r: 7.6 };
+const RIDGE = { x: 0, z: 0 };
+const MESA = { x: 0, z: 0 };
+const KNOLL = { x: 0, z: 0 };
+const CRATER = { x: 0, z: 0 };
+const DUNE = { x: 0, z: 0 };
+// Authored landmark spots (radius-48 units); each map rotates/mirrors the layout and jitters them.
+const LANDMARK_BASE = [
+  [POND, 24, -6],
+  [RIDGE, -18, 16],
+  [MESA, 20, 14],
+  [KNOLL, -8, 26],
+  [CRATER, -22, -18],
+  [DUNE, 10, -26],
+];
+const LAYOUT = { ang: 0, cos: 1, sin: 0, flip: 1 };
 
-// Random hills, plateaus and hollows, rolled once per page load and kept clear of the plaza and pond.
-const TERRAIN_FEATURES = (() => {
+// Maps an authored (radius-48) point into the current map's rotated, mirrored, scaled layout.
+function lay(x, z) {
+  const fz = z * LAYOUT.flip;
+  return [(x * LAYOUT.cos - fz * LAYOUT.sin) * WS, (x * LAYOUT.sin + fz * LAYOUT.cos) * WS];
+}
+
+// Random hills, plateaus and hollows, kept clear of the plaza and pond.
+let TERRAIN_FEATURES = [];
+function rollTerrainFeatures() {
   const list = [];
   const want = Math.round(ARENA_RADIUS * ARENA_RADIUS * 0.0014);
   for (let t = 0; t < want * 30 && list.length < want; t++) {
@@ -243,7 +260,29 @@ const TERRAIN_FEATURES = (() => {
     list.push({ x, z, r, h: up ? rand(2.5, 9) : -rand(1.4, 3.2), mesa: up && Math.random() < 0.3 });
   }
   return list;
-})();
+}
+
+// Rolls a fresh map: layout orientation, landmark jitter and terrain features.
+function rollMap() {
+  LAYOUT.ang = rand(0, TAU);
+  LAYOUT.cos = Math.cos(LAYOUT.ang);
+  LAYOUT.sin = Math.sin(LAYOUT.ang);
+  LAYOUT.flip = Math.random() < 0.5 ? -1 : 1;
+  for (const [o, bx, bz] of LANDMARK_BASE) {
+    [o.x, o.z] = lay(bx * rand(0.85, 1.2), bz * rand(0.85, 1.2));
+  }
+  TERRAIN_FEATURES = rollTerrainFeatures();
+}
+
+function disposeTree(root) {
+  root.traverse((o) => {
+    o.geometry?.dispose();
+    for (const m of [].concat(o.material || [])) {
+      m.map?.dispose();
+      m.dispose();
+    }
+  });
+}
 
 function heightAt(x, z) {
   const d = Math.hypot(x, z);
@@ -576,7 +615,8 @@ class Game {
     view.addEventListener("click", () => {
       if (this.mode === "run" && !this.choosing && !this.shopping) view.requestPointerLock();
     });
-    view.addEventListener("contextmenu", (e) => e.preventDefault());
+    // Right-click never opens the browser menu or acts on overlays.
+    document.addEventListener("contextmenu", (e) => e.preventDefault());
     view.addEventListener("mousedown", (e) => {
       if (e.button === 2) this.mouseRight = true;
     });
@@ -587,7 +627,8 @@ class Game {
       this.pointer.locked = document.pointerLockElement === view;
     });
     document.addEventListener("mousemove", (e) => {
-      if (!this.pointer.locked) return;
+      // Mouse always steers the camera in play, even if the browser refused pointer lock.
+      if (!this.pointer.locked && !(this.mode === "run" && !this.choosing && !this.shopping)) return;
       this.camYaw -= e.movementX * 0.0022;
       this.camPitch = clamp(this.camPitch - e.movementY * 0.0016, 0.16, 0.85);
     });
@@ -653,23 +694,35 @@ class Game {
   }
 
   buildStaticWorld() {
+    if (this.worldRoot) {
+      this.scene.remove(this.worldRoot);
+      disposeTree(this.worldRoot);
+    }
+    rollMap();
+    this.worldRoot = new THREE.Group();
+    this.scene.add(this.worldRoot);
+    const root = this.worldRoot;
+    // Sky, sun and god rays ride along with the camera so the island can be bigger than the sky dome.
+    this.skyRig = new THREE.Group();
+    root.add(this.skyRig);
     this.world = new THREE.Group();
-    this.scene.add(this.world);
+    root.add(this.world);
     this.obstacles = [];
+    this.obstacleGrid = null;
 
     const sky = new THREE.Mesh(
       new THREE.SphereGeometry(160, 32, 20),
       new THREE.MeshBasicMaterial({ map: makeSkyTex(), side: THREE.BackSide, fog: false, depthWrite: false })
     );
     sky.rotation.y = 0.55;
-    this.scene.add(sky);
+    this.skyRig.add(sky);
 
     const sunOrb = new THREE.Mesh(
       new THREE.SphereGeometry(5.2, 18, 14),
       new THREE.MeshBasicMaterial({ color: 0xfff6d0, fog: false })
     );
     sunOrb.position.set(42, 32, 20);
-    this.scene.add(sunOrb);
+    this.skyRig.add(sunOrb);
     const sunGlow = new THREE.Mesh(
       new THREE.SphereGeometry(11, 14, 10),
       new THREE.MeshBasicMaterial({
@@ -682,7 +735,7 @@ class Game {
       })
     );
     sunGlow.position.copy(sunOrb.position);
-    this.scene.add(sunGlow);
+    this.skyRig.add(sunGlow);
 
     const rayMat = new THREE.MeshBasicMaterial({
       color: 0xffd8a8,
@@ -698,7 +751,7 @@ class Game {
       const ray = new THREE.Mesh(new THREE.PlaneGeometry(5.5, 36), rayMat);
       ray.position.set(22 + i * 3.2, 16, 10 - i * 2.4);
       ray.lookAt(0, 2, 0);
-      this.scene.add(ray);
+      this.skyRig.add(ray);
       this.godRays.push(ray);
     }
 
@@ -717,7 +770,7 @@ class Game {
       puff.position.set(Math.cos(a) * rand(20, 52) * WS, rand(12, 20), Math.sin(a) * rand(20, 52) * WS);
       this.clouds.add(puff);
     }
-    this.scene.add(this.clouds);
+    root.add(this.clouds);
 
     this.waterTex = makeWaterTex();
     const water = new THREE.Mesh(
@@ -743,7 +796,7 @@ class Game {
       const hill = new THREE.Mesh(new THREE.ConeGeometry(rand(7, 14), rand(5, 13), 6), hillMat);
       hill.position.set(Math.cos(a) * rand(ARENA_RADIUS + 30, ARENA_RADIUS + 48), -1.2, Math.sin(a) * rand(ARENA_RADIUS + 30, ARENA_RADIUS + 48));
       hill.rotation.y = a;
-      this.scene.add(hill);
+      root.add(hill);
     }
 
     const grassTex = makeGrassTex();
@@ -783,7 +836,7 @@ class Game {
     this.world.add(cliff);
 
     const dirtMat = lambert(0xd8c48a, { map: makeDirtTex() });
-    const scalePts = (pts) => pts.map(([x, z]) => [x * WS, z * WS]);
+    const scalePts = (pts) => pts.map(([x, z]) => lay(x, z));
     addTrail(this.world, scalePts([[0, 0], [6, 5], [14, 8], [18, 12], [20, 14]]), dirtMat, 2.6);
     addTrail(this.world, scalePts([[0, 0], [8, -3], [16, -5], [22, -6]]), dirtMat, 2.3);
     addTrail(this.world, scalePts([[0, 0], [-7, 8], [-14, 13], [-18, 16]]), dirtMat, 2.2);
@@ -859,19 +912,22 @@ class Game {
     this.world.add(ruinBit);
     this.obstacles.push({ x: MESA.x, z: MESA.z, r: 1.9 });
 
-    const archX = 4 * WS;
-    const archZ = -18 * WS;
+    const [archX, archZ] = lay(4, -18);
     const archY = heightAt(archX, archZ);
+    const ax = LAYOUT.cos * 1.5;
+    const az = LAYOUT.sin * 1.5;
     const pillarGeo = new THREE.BoxGeometry(0.7, 3.2, 0.7);
     const pL = new THREE.Mesh(pillarGeo, stoneMat);
     const pR = new THREE.Mesh(pillarGeo, stoneMat);
-    pL.position.set(archX - 1.5, archY + 1.6, archZ);
-    pR.position.set(archX + 1.5, archY + 1.6, archZ);
+    pL.position.set(archX - ax, archY + 1.6, archZ - az);
+    pR.position.set(archX + ax, archY + 1.6, archZ + az);
+    pL.rotation.y = pR.rotation.y = -LAYOUT.ang;
     const lintel = new THREE.Mesh(new THREE.BoxGeometry(3.6, 0.55, 0.85), darkStone);
     lintel.position.set(archX, archY + 3.35, archZ);
+    lintel.rotation.y = -LAYOUT.ang;
     pL.castShadow = pR.castShadow = lintel.castShadow = true;
     this.world.add(pL, pR, lintel);
-    this.obstacles.push({ x: archX - 1.5, z: archZ, r: 0.7 }, { x: archX + 1.5, z: archZ, r: 0.7 });
+    this.obstacles.push({ x: archX - ax, z: archZ - az, r: 0.7 }, { x: archX + ax, z: archZ + az, r: 0.7 });
 
     for (let i = 0; i < 3; i++) {
       const a = (i / 3) * TAU + 0.4;
@@ -885,11 +941,10 @@ class Game {
       this.obstacles.push({ x, z, r: 0.65 });
     }
 
-    const lx = -12 * WS;
-    const lz = 6 * WS;
+    const [lx, lz] = lay(-12, 6);
     const log = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.34, 4.4, 7), toon(0x6a4428));
     log.rotation.z = Math.PI / 2;
-    log.rotation.y = 0.5;
+    log.rotation.y = 0.5 - LAYOUT.ang;
     log.position.set(lx, heightAt(lx, lz) + 0.32, lz);
     log.castShadow = true;
     this.world.add(log);
@@ -904,9 +959,9 @@ class Game {
 
     for (let i = 0; i < 5; i++) {
       const plank = new THREE.Mesh(new THREE.BoxGeometry(1.6, 0.12, 0.55), toon(0x8a6238));
-      const pz = 40 * WS + i * 0.55;
-      plank.position.set(-1 + i * 0.15, heightAt(0, pz) + 0.2, pz);
-      plank.rotation.y = 0.08;
+      const [px, pz] = lay(-1 / WS + (i * 0.15) / WS, 40 + (i * 0.55) / WS);
+      plank.position.set(px, heightAt(px, pz) + 0.2, pz);
+      plank.rotation.y = 0.08 - LAYOUT.ang;
       this.world.add(plank);
     }
 
@@ -1055,7 +1110,7 @@ class Game {
       const oz = rand(-MOTE_BOX / 2, MOTE_BOX / 2);
       const oy = rand(0.45, 3.6);
       m.position.set(ox, oy + heightAt(ox, oz), oz);
-      this.scene.add(m);
+      root.add(m);
       this.motes.push({ mesh: m, ox, oy, oz, ph: rand(0, TAU) });
     }
   }
@@ -1312,6 +1367,8 @@ class Game {
     const hero = CHARACTERS.find((h) => h.id === this.selectedHero) || CHARACTERS[0];
     if (!(hero.unlocked || this.save.unlocks[hero.id])) return;
 
+    if (this.mapUsed) this.buildStaticWorld();
+    this.mapUsed = true;
     this.clearRunActors();
     this.hero = hero;
     this.mode = "run";
@@ -2026,12 +2083,9 @@ class Game {
         <div class="card-icon">${c.icon}</div>
         <div class="card-name">${this.t(c.name, c.nameEn)}</div>
         <div class="card-desc">${this.t(c.desc, c.descEn)}</div>
-        <div class="card-key">${i + 1}</div>
-        <div class="card-banish">${this.t("انقر باليمين للنفي", "Right-click to banish")}</div>`;
-      el.onclick = () => this.pickCard(i);
-      el.oncontextmenu = (ev) => {
-        ev.preventDefault();
-        this.banishCard(i);
+        <div class="card-key">${i + 1}</div>`;
+      el.onclick = (ev) => {
+        if (ev.button === 0) this.pickCard(i);
       };
       this.els.cards.appendChild(el);
     });
@@ -2205,15 +2259,6 @@ class Game {
       this.spawnEnemy(kind);
     }
     this.banner(this.t(`موجة مستوى ${this.level}!`, `Level ${this.level} wave!`));
-  }
-
-  banishCard(i) {
-    if (!this.choosing || !this.cardOpts?.[i]) return;
-    const c = this.cardOpts[i];
-    this.banished.add(c.type + (c.weaponId || c.tomeId));
-    this.toast(this.t("نُفي من المجموعة", "Banished from the pool"));
-    this.sfx.hit();
-    this.openLevelUp();
   }
 
   weaponCount(w, def) {
@@ -3164,6 +3209,7 @@ class Game {
       this.updateFx(dt);
     }
     const t = this.clock.elapsedTime;
+    if (this.skyRig) this.skyRig.position.set(this.camera.position.x, 0, this.camera.position.z);
     if (this.clouds) this.clouds.rotation.y += dt * 0.015;
     if (this.waterTex) {
       this.waterTex.offset.x += dt * 0.014;
