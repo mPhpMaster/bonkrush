@@ -489,12 +489,6 @@ h1 {
 #prompt.show {
   opacity: 1;
 }
-.card-banish {
-  margin-top: 8px;
-  font-size: 11px;
-  opacity: 0.75;
-}
-
 .end-stats {
   display: grid;
   grid-template-columns: 1fr 1fr;

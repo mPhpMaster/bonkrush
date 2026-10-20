@@ -1,4 +1,4 @@
-export const ARENA_RADIUS = 48;
+export const ARENA_RADIUS = 180;
 export const SURVIVE_SECONDS = 8 * 60;
 
 export const CHARACTERS = [
@@ -294,6 +294,9 @@ export const QUESTS = [
   { id: "charge", label: "20 قتلة بشحنة", labelEn: "20 charge-attack kills" },
   { id: "boss", label: "اهزم زعيماً", labelEn: "Defeat a boss" },
 ];
+
+// Global multiplier on enemy move speed (1 = original pace).
+export const ENEMY_SPEED_SCALE = 0.5;
 
 export const ENEMY_KINDS = {
   grunt: { name: "وحل", hp: 28, speed: 4.35, dmg: 8, radius: 0.55, color: 0x6bcf6b, xp: 3, gold: 0.12, scale: 1 },
